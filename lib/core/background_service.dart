@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:ui';
-import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -81,32 +80,58 @@ class BackgroundService {
 
     // Start listening to notifications
     NotificationListenerService.notificationsStream.listen((ServiceNotificationEvent event) {
-      if (event.packageName == null || event.title == null || event.content == null) return;
+      // Package name is essential to identify the source
+      if (event.packageName == null) return;
 
       final incomingId = event.id?.toString() ?? '';
-      final title = event.title ?? 'No title';
-      final content = event.content ?? 'No content';
+      final title = event.title ?? '';
+      final content = event.content ?? '';
       final packageName = event.packageName!;
+
+      // If both title and content are empty, it's likely a system noise or empty state
+      if (title.isEmpty && content.isEmpty) return;
 
       final newNotif = NotificationModel(
         id: incomingId.isNotEmpty ? incomingId : DateTime.now().millisecondsSinceEpoch.toString(),
         packageName: packageName,
-        title: title,
-        text: content,
+        title: title.isNotEmpty ? title : 'No title',
+        text: content.isNotEmpty ? content : 'No content',
         timestamp: DateTime.now(),
-        senderIcon: event.largeIcon,
+        senderIcon: (event.largeIcon != null && event.largeIcon!.length > 500 * 1024) 
+            ? null // Skip icon if it's too large (>500KB) to avoid TransactionTooLargeException
+            : event.largeIcon,
       );
 
-      // Simple deduplication inside background isolate
-      final existingNotifs = box.values.toList();
-      final isDuplicate = existingNotifs.any((n) => 
-        n.id == incomingId && n.title == title && n.text == content
-      );
+      // More robust deduplication:
+      // We only skip if the title and content are IDENTICAL to the very last stored notification for THIS app.
+      // This prevents progress bar spam (e.g., 50 notifications that all say "Downloading...")
+      // but captures every meaningful change (e.g., "Downloading..." -> "Download successfully").
+      
+      bool shouldStore = true;
+      final allNotifs = box.values.toList();
+      
+      if (allNotifs.isNotEmpty) {
+        try {
+          // Find the most recent notification from the same package
+          final lastForApp = allNotifs.lastWhere((n) => n.packageName == packageName);
+          if (lastForApp.title == newNotif.title && lastForApp.text == newNotif.text) {
+            shouldStore = false; 
+          }
+        } catch (_) {
+          // No previous notification for this app found, so we should store it
+        }
+      }
 
-      if (!isDuplicate) {
+      if (shouldStore) {
         box.add(newNotif);
-        // Notify foreground if it's active
-        service.invoke('onNotificationCaptured', newNotif.toJson());
+        
+        // Notify foreground if it's active.
+        // CRITICAL: We remove the senderIcon (Unit8List) from the Map before sending via invoke.
+        // Inter-isolate communication (Binder on Android) has a 1MB limit.
+        // Sending large icons causes TransactionTooLargeException.
+        final json = newNotif.toJson();
+        json['senderIcon'] = null; 
+        service.invoke('onNotificationCaptured', json);
       }
     });
   }

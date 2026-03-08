@@ -2,7 +2,6 @@ import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
 import 'package:notification_listener_service/notification_listener_service.dart';
-import 'package:notification_listener_service/notification_event.dart';
 import 'notification_model.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -68,6 +67,7 @@ class NotificationHistoryController extends GetxController {
     }
     
     if (status) {
+      if (isServiceRunning.value) return; // Already initialized
       isServiceRunning.value = true;
       
       // Listen for notifications captured by the background service

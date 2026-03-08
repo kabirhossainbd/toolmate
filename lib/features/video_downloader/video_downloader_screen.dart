@@ -19,12 +19,14 @@ class VideoDownloaderScreen extends GetView<VideoDownloaderController> {
         children: [
           _buildTabBar(context),
           Expanded(
-            child: TabBarView(
-              controller: controller.tabController,
-              children: [
-                _InsertLinkTab(controller: controller),
-                _DownloadedTab(controller: controller),
-              ],
+            child: SafeArea(
+              child: TabBarView(
+                controller: controller.tabController,
+                children: [
+                  _InsertLinkTab(controller: controller),
+                  _DownloadedTab(controller: controller),
+                ],
+              ),
             ),
           ),
         ],
@@ -400,7 +402,7 @@ class _InsertLinkTab extends StatelessWidget {
                                         BorderRadius.circular(8),
                                   ),
                                   child: const Center(
-                                    child: Text('Download to Gallery',
+                                    child: Text('Save to Gallery',
                                         style: TextStyle(
                                             color: Colors.white,
                                             fontWeight:
