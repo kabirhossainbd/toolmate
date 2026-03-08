@@ -1,6 +1,10 @@
-# toolmate
+App Title
 
-A new Flutter project.
+ToolMate – Cleaner, Video Downloader & Notification History
+
+Short Description
+
+Clean storage, download social videos, and never miss deleted notifications – all in one smart toolkit.
 
 ## Getting Started
 
