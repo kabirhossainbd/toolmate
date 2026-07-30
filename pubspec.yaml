@@ -30,7 +30,8 @@ dependencies:
   device_info_plus: ^10.1.0
   photo_manager: ^3.0.0
   photo_manager_image_provider: ^2.0.0
-  notification_listener_service: ^0.3.5
+  notification_listener_service:
+    path: packages/notification_listener_service
   storage_space: ^1.2.0
   crypto: ^3.0.7
   gallery_saver_plus: ^3.2.9

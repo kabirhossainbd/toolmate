@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -64,6 +65,12 @@ class BackgroundService {
     }
     final box = await Hive.openBox<NotificationModel>('notifications');
 
+    // O(1) dedupe cache — avoids box.values.toList() on every notification
+    final lastByPackage = <String, List<String>>{};
+    for (final n in box.values) {
+      lastByPackage[n.packageName] = [n.title, n.text];
+    }
+
     if (service is AndroidServiceInstance) {
       service.on('setAsForeground').listen((event) {
         service.setAsForegroundService();
@@ -79,7 +86,8 @@ class BackgroundService {
     });
 
     // Start listening to notifications
-    NotificationListenerService.notificationsStream.listen((ServiceNotificationEvent event) {
+    NotificationListenerService.notificationsStream.listen(
+      (ServiceNotificationEvent event) {
       // Package name is essential to identify the source
       if (event.packageName == null) return;
 
@@ -91,48 +99,42 @@ class BackgroundService {
       // If both title and content are empty, it's likely a system noise or empty state
       if (title.isEmpty && content.isEmpty) return;
 
+      // Cap icon size before Hive storage to avoid memory pressure from media apps (TikTok, etc.)
+      Uint8List? senderIcon = event.largeIcon;
+      if (senderIcon != null && senderIcon.length > 100 * 1024) {
+        senderIcon = null;
+      }
+
       final newNotif = NotificationModel(
         id: incomingId.isNotEmpty ? incomingId : DateTime.now().millisecondsSinceEpoch.toString(),
         packageName: packageName,
         title: title.isNotEmpty ? title : 'No title',
         text: content.isNotEmpty ? content : 'No content',
         timestamp: DateTime.now(),
-        senderIcon: (event.largeIcon != null && event.largeIcon!.length > 500 * 1024) 
-            ? null // Skip icon if it's too large (>500KB) to avoid TransactionTooLargeException
-            : event.largeIcon,
+        senderIcon: senderIcon,
       );
 
-      // More robust deduplication:
-      // We only skip if the title and content are IDENTICAL to the very last stored notification for THIS app.
-      // This prevents progress bar spam (e.g., 50 notifications that all say "Downloading...")
-      // but captures every meaningful change (e.g., "Downloading..." -> "Download successfully").
-      
-      bool shouldStore = true;
-      final allNotifs = box.values.toList();
-      
-      if (allNotifs.isNotEmpty) {
-        try {
-          // Find the most recent notification from the same package
-          final lastForApp = allNotifs.lastWhere((n) => n.packageName == packageName);
-          if (lastForApp.title == newNotif.title && lastForApp.text == newNotif.text) {
-            shouldStore = false; 
-          }
-        } catch (_) {
-          // No previous notification for this app found, so we should store it
-        }
+      // Skip identical spam for the same app (progress bars, etc.)
+      final last = lastByPackage[packageName];
+      if (last != null && last[0] == newNotif.title && last[1] == newNotif.text) {
+        return;
       }
+      lastByPackage[packageName] = [newNotif.title, newNotif.text];
 
-      if (shouldStore) {
-        box.add(newNotif);
-        
-        // Notify foreground if it's active.
-        // CRITICAL: We remove the senderIcon (Unit8List) from the Map before sending via invoke.
-        // Inter-isolate communication (Binder on Android) has a 1MB limit.
-        // Sending large icons causes TransactionTooLargeException.
-        final json = newNotif.toJson();
-        json['senderIcon'] = null; 
-        service.invoke('onNotificationCaptured', json);
-      }
-    });
+      box.add(newNotif);
+
+      // Notify foreground if it's active.
+      // CRITICAL: strip senderIcon before Binder IPC (1MB limit).
+      final json = newNotif.toJson();
+      json['senderIcon'] = null;
+      service.invoke('onNotificationCaptured', json);
+    },
+      onError: (Object error, StackTrace stack) {
+        // Native plugin errors (e.g. oversized TikTok images) must not kill the isolate
+        // ignore: avoid_print
+        print('Notification stream error: $error');
+      },
+      cancelOnError: false,
+    );
   }
 }

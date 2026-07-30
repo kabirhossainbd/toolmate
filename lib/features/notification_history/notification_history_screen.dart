@@ -4,8 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:installed_apps/installed_apps.dart';
+import '../../core/app_ui.dart';
+import '../../core/style.dart';
 import 'notification_history_controller.dart';
 import 'notification_model.dart';
 
@@ -42,17 +43,13 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBodyBehindAppBar: true,
+    return AppUi.gradientScaffold(
+      context: context,
       appBar: AppBar(
-        title: const Text(
-          'Advanced History',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-        ).animate().fade(duration: 600.ms).slideY(begin: -0.5, end: 0, duration: 600.ms, curve: Curves.easeOutBack),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        surfaceTintColor: Colors.transparent,
-        iconTheme: IconThemeData(color: Theme.of(context).textTheme.titleLarge?.color),
+        title: Text(
+          'Notification History',
+          style: openSansBold.copyWith(fontSize: 18),
+        ),
         actions: [
           IconButton(
             icon: const FaIcon(FontAwesomeIcons.filter, size: 16),
@@ -66,27 +63,14 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
             onPressed: _toggleSearch,
           ),
           IconButton(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.more_vert_rounded),
             onPressed: () {
-              // Option to clear history
                _showMenu(context);
             },
           ),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.6),
-              Theme.of(context).colorScheme.surface,
-              Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.4),
-            ],
-          ),
-        ),
-        child: SafeArea(
+      body: SafeArea(
           child: Column(
             children: [
               // Animated search bar
@@ -116,10 +100,10 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
                               },
                             ),
                             filled: true,
-                            fillColor: Theme.of(context).colorScheme.surface.withValues(alpha: 0.85),
+                            fillColor: Theme.of(context).cardColor.withValues(alpha: 0.9),
                             contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(AppUi.radiusMd),
                               borderSide: BorderSide.none,
                             ),
                           ),
@@ -130,7 +114,6 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
               Expanded(child: _buildListSection(context)),
             ],
           ),
-        ),
       ),
     );
   }
@@ -424,7 +407,7 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
               Text('No notifications found', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
             ],
           ),
-        ).animate().fade(duration: 600.ms);
+        );
       }
       
       final appKeys = controller.groupedNotifications.keys.toList();
@@ -472,7 +455,7 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
                        Stack(
                         clipBehavior: Clip.none,
                         children: [
-                          _AppIcon(packageName: packageName, size: 56, fallbackLabel: _getAppName(packageName)[0].toUpperCase(), fallbackColor: _getAppColor(packageName)),
+                          _AppIcon(packageName: packageName, size: 56, fallbackLabel: safeInitial(_getAppName(packageName)), fallbackColor: _getAppColor(packageName)),
                           if (badgeCount > 0)
                             Positioned(
                               right: -4,
@@ -531,7 +514,7 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
                 ),
               ),
             ),
-          ).animate().fade(duration: 500.ms, delay: (50 * index).ms).slideX(begin: 0.1, end: 0, duration: 500.ms, curve: Curves.easeOut);
+          );
         },
       );
     });
@@ -552,7 +535,9 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
     if (packageName.contains('twitter') || packageName.contains('x.com')) return 'X (Twitter)';
     if (packageName.contains('gmail')) return 'Gmail';
     if (packageName.contains('chrome')) return 'Chrome';
-    if (packageName.contains('tiktok')) return 'TikTok';
+    if (packageName.contains('tiktok') ||
+        packageName.contains('musically') ||
+        packageName.contains('aweme')) return 'TikTok';
     if (packageName.contains('spotify')) return 'Spotify';
     final parts = packageName.split('.');
     return parts.last.capitalizeFirst ?? packageName;
@@ -641,7 +626,7 @@ class AppNotificationsScreen extends GetView<NotificationHistoryController> {
                return Text('$count Messages', style: TextStyle(color: Theme.of(context).textTheme.titleLarge?.color?.withValues(alpha: 0.7), fontSize: 13));
             }),
           ],
-        ).animate().fade().slideX(begin: -0.1, end: 0, duration: 400.ms),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
@@ -669,7 +654,7 @@ class AppNotificationsScreen extends GetView<NotificationHistoryController> {
           child: Column(
             children: [
               Obx(() => AnimatedSwitcher(
-                duration: 300.ms,
+                duration: const Duration(milliseconds: 300),
                 child: showSearch.value 
                   ? Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -737,14 +722,14 @@ class AppNotificationsScreen extends GetView<NotificationHistoryController> {
                                     _SenderIcon(senderIcon: latest.senderIcon!, size: 52, appIcon: _AppIcon(
                                       packageName: packageName,
                                       size: 52,
-                                      fallbackLabel: name[0].toUpperCase(),
+                                      fallbackLabel: safeInitial(name),
                                       fallbackColor: appColor,
                                     ))
                                   else
                                     _AppIcon(
                                       packageName: packageName,
                                       size: 52,
-                                      fallbackLabel: name[0].toUpperCase(),
+                                      fallbackLabel: safeInitial(name),
                                       fallbackColor: appColor,
                                     ),
                                   const SizedBox(width: 16),
@@ -802,7 +787,7 @@ class AppNotificationsScreen extends GetView<NotificationHistoryController> {
                             ),
                           ),
                         ),
-                      ).animate().fade(duration: 400.ms, delay: (40 * index).ms).slideX(begin: 0.1, end: 0, duration: 400.ms, curve: Curves.easeOut);
+                      );
                     },
                   );
                 }),
@@ -1055,7 +1040,7 @@ class _ChatBubble extends StatelessWidget {
              _SenderIcon(senderIcon: message.senderIcon!, size: 36, appIcon: _AppIcon(
                 packageName: packageName,
                 size: 36,
-                fallbackLabel: message.title.isNotEmpty ? message.title[0] : '?',
+                fallbackLabel: safeInitial(message.title),
                 fallbackColor: appColor,
              ))
           else
@@ -1115,6 +1100,6 @@ class _ChatBubble extends StatelessWidget {
           const SizedBox(width: 40), // Push bubble to left
         ],
       ),
-    ).animate().fade().slideY(begin: 0.1, end: 0);
+    );
   }
 }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../../core/app_ui.dart';
+import '../../core/style.dart';
 import 'user_profile_controller.dart';
 
 class UserProfileScreen extends GetView<UserProfileController> {
@@ -22,17 +24,16 @@ class UserProfileScreen extends GetView<UserProfileController> {
               expandedHeight: 280,
               pinned: true,
               stretch: true,
-              backgroundColor: const Color(0xFF1565C0),
+              backgroundColor: AppUi.brandDeep,
               leading: IconButton(
                 icon: const Icon(Icons.arrow_back_ios_new_rounded,
                     color: Colors.white),
                 onPressed: () => Get.back(),
               ),
-              title: const Text(
+              title: Text(
                 'My Profile',
-                style: TextStyle(
+                style: openSansBold.copyWith(
                   color: Colors.white,
-                  fontWeight: FontWeight.bold,
                   fontSize: 20,
                 ),
               ),
@@ -44,15 +45,7 @@ class UserProfileScreen extends GetView<UserProfileController> {
                     // Gradient background
                     Container(
                       decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Color(0xFF1565C0),
-                            Color(0xFF7B1FA2),
-                            Color(0xFF00838F),
-                          ],
-                        ),
+                        gradient: AppUi.brandHero,
                       ),
                     ),
                     // Decorative circles
@@ -127,9 +120,8 @@ class UserProfileScreen extends GetView<UserProfileController> {
                                           profile.name.isNotEmpty
                                               ? profile.name[0].toUpperCase()
                                               : 'U',
-                                          style: const TextStyle(
+                                          style: openSansExtraBold.copyWith(
                                             fontSize: 42,
-                                            fontWeight: FontWeight.bold,
                                             color: Colors.white,
                                           ),
                                         )
@@ -142,7 +134,7 @@ class UserProfileScreen extends GetView<UserProfileController> {
                                   child: Container(
                                     padding: const EdgeInsets.all(6),
                                     decoration: const BoxDecoration(
-                                      color: Color(0xFF1E88E5),
+                                      color: AppUi.brandBlue,
                                       shape: BoxShape.circle,
                                     ),
                                     child: const Icon(
@@ -161,10 +153,9 @@ class UserProfileScreen extends GetView<UserProfileController> {
                           const SizedBox(height: 10),
                           Text(
                             profile.name.isEmpty ? 'Your Name' : profile.name,
-                            style: const TextStyle(
+                            style: openSansBold.copyWith(
                               color: Colors.white,
                               fontSize: 20,
-                              fontWeight: FontWeight.bold,
                               letterSpacing: 0.5,
                             ),
                           ).animate().fade(duration: 400.ms, delay: 200.ms),

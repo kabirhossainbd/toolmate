@@ -5,27 +5,29 @@ import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 import 'storage_analyzer_controller.dart';
 import 'dart:io';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'duplicate_images_screen.dart';
 import 'large_files_screen.dart';
 import 'duplicate_files_screen.dart';
 import 'storage_explorer_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../core/app_ui.dart';
+import '../../core/style.dart';
 
 class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
   const StorageAnalyzerScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return AppUi.gradientScaffold(
+      context: context,
       appBar: AppBar(
-        title: const Text('Storage Analyzer', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
+        title: Text('Storage Analyzer', style: openSansBold.copyWith(fontSize: 18)),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Refresh',
             onPressed: () => controller.refreshData(),
-          ).animate().rotate(),
+          ),
         ],
       ),
       body: SafeArea(
@@ -35,9 +37,21 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const CircularProgressIndicator(),
+                  SizedBox(
+                    width: 56,
+                    height: 56,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
                   const SizedBox(height: 16),
-                  Text('Analyzing Storage...', style: TextStyle(color: Colors.grey[600])),
+                  Text(
+                    'Analyzing Storage...',
+                    style: openSansMedium.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
                 ],
               ),
             );
@@ -59,7 +73,7 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
                   const SizedBox(height: 12),
                   _buildToolsList(context),
                 ],
-              ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.1),
+              ),
             ),
           );
         }),
@@ -70,10 +84,7 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Text(
-        title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-      ),
+      child: Text(title, style: openSansBold.copyWith(fontSize: 18)),
     );
   }
 
@@ -84,7 +95,7 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
         padding: const EdgeInsets.all(24.0),
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(AppUi.radiusLg),
         ),
         child: const Center(child: Text('Storage info unavailable')),
       );
@@ -97,30 +108,30 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).colorScheme.primary,
-            Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        gradient: AppUi.brandHero,
+        borderRadius: BorderRadius.circular(AppUi.radiusLg),
+        boxShadow: AppUi.softGlow(AppUi.brandDeep),
       ),
       child: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            const Text(
-              'Storage Usage',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.donut_large_rounded, color: Colors.white),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Storage Usage',
+                  style: openSansBold.copyWith(fontSize: 18, color: Colors.white),
+                ),
+              ],
             ),
             const SizedBox(height: 24),
             Stack(
@@ -130,20 +141,20 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
                   height: 160,
                   width: 160,
                   child: CircularProgressIndicator(
-                    value: usedPercent,
+                    value: usedPercent.clamp(0.0, 1.0),
                     strokeWidth: 14,
                     backgroundColor: Colors.white.withValues(alpha: 0.2),
                     color: Colors.white,
                     strokeCap: StrokeCap.round,
                   ),
-                ).animate().scale(duration: 600.ms, curve: Curves.easeOutBack),
+                ),
                 Column(
                   children: [
                     Text(
                       '${(usedPercent * 100).toStringAsFixed(1)}%',
-                      style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+                      style: openSansExtraBold.copyWith(fontSize: 32, color: Colors.white),
                     ),
-                    const Text('Used', style: TextStyle(color: Colors.white70)),
+                    Text('Used', style: openSansRegular.copyWith(color: Colors.white70)),
                   ],
                 ),
               ],
@@ -152,8 +163,8 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildOverviewItem('Total', '${totalGB.toInt()} GB', Icons.storage),
-                _buildOverviewItem('Free', '${freeGB.toStringAsFixed(1)} GB', Icons.cloud_done),
+                _buildOverviewItem('Total', '${totalGB.toInt()} GB', Icons.storage_rounded),
+                _buildOverviewItem('Free', '${freeGB.toStringAsFixed(1)} GB', Icons.cloud_done_rounded),
               ],
             ),
           ],

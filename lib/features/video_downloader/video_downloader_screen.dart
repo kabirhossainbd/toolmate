@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import '../../core/app_ui.dart';
+import '../../core/style.dart';
 import 'video_downloader_controller.dart';
 import 'video_model.dart';
 
 // ─── Brand colors (constant) ──────────────────────────────────────────────────
-const _kBlue = Color(0xFF1565C0);
+const _kBlue = AppUi.brandDeep;
 
 class VideoDownloaderScreen extends GetView<VideoDownloaderController> {
   const VideoDownloaderScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final bg = Theme.of(context).scaffoldBackgroundColor;
-    return Scaffold(
-      backgroundColor: bg,
+    return AppUi.gradientScaffold(
+      context: context,
       appBar: _buildAppBar(context),
       body: Column(
         children: [
@@ -36,29 +37,26 @@ class VideoDownloaderScreen extends GetView<VideoDownloaderController> {
 
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final appBarBg = Theme.of(context).appBarTheme.backgroundColor ??
-        (isDark ? const Color(0xFF1E1E1E) : Colors.white);
     final iconColor = isDark ? Colors.white : Colors.black87;
     final titleColor = isDark ? Colors.white : Colors.black87;
 
     return AppBar(
-      backgroundColor: appBarBg,
-      surfaceTintColor: Colors.transparent,
       elevation: 0,
       leadingWidth: 0,
-      leading: SizedBox(),
+      leading: const SizedBox(),
       title: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            icon: Icon(Icons.arrow_back_ios, color: iconColor),
+            icon: Icon(Icons.arrow_back_ios_new_rounded, color: iconColor, size: 20),
             onPressed: () => Get.back(),
           ),
           Container(
-            padding: const EdgeInsets.all(6),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: _kBlue,
-              borderRadius: BorderRadius.circular(8),
+              gradient: AppUi.accentGradient(_kBlue),
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: AppUi.softGlow(_kBlue, opacity: 0.35),
             ),
             child:
                 const Icon(Icons.download_rounded, color: Colors.white, size: 18),
@@ -67,10 +65,9 @@ class VideoDownloaderScreen extends GetView<VideoDownloaderController> {
           Flexible(
             child: Text(
               'Video Downloader',
-              style: TextStyle(
+              style: openSansBold.copyWith(
                 color: titleColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
+                fontSize: 15,
               ),
             ),
           ),
@@ -87,15 +84,14 @@ class VideoDownloaderScreen extends GetView<VideoDownloaderController> {
             ),
             borderRadius: BorderRadius.circular(20),
           ),
-          child: const Row(
+          child: Row(
             children: [
-              Icon(Icons.diamond, color: Colors.white, size: 14),
-              SizedBox(width: 4),
-              Text('Sale 60%',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold)),
+              const Icon(Icons.diamond_rounded, color: Colors.white, size: 14),
+              const SizedBox(width: 4),
+              Text(
+                'Sale 60%',
+                style: openSansBold.copyWith(color: Colors.white, fontSize: 12),
+              ),
             ],
           ),
         ),
