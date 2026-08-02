@@ -24,6 +24,44 @@ class StorageAnalyzerController extends GetxController {
   final RxBool isScanningDuplicates = false.obs;
   final RxBool isScanningFolders = false.obs;
 
+  /// Shared scan UI — percent 0–100; indeterminate while counting/walking dirs.
+  final RxDouble scanPercent = 0.0.obs;
+  final RxBool scanIndeterminate = true.obs;
+
+  /// Canonical file path for each gallery asset id (used to avoid false duplicates).
+  final Map<String, String> _imagePathById = {};
+
+  /// Normalize Android path aliases + resolve symlinks so the same file
+  /// is never treated as two different files.
+  String _canonicalPath(String path) {
+    var p = path.trim();
+    if (p.startsWith('/sdcard')) {
+      p = p.replaceFirst('/sdcard', '/storage/emulated/0');
+    }
+    if (p.startsWith('/storage/self/primary')) {
+      p = p.replaceFirst('/storage/self/primary', '/storage/emulated/0');
+    }
+    if (p.startsWith('/mnt/sdcard')) {
+      p = p.replaceFirst('/mnt/sdcard', '/storage/emulated/0');
+    }
+    // Collapse duplicate slashes
+    p = p.replaceAll(RegExp(r'/+'), '/');
+    try {
+      return File(p).resolveSymbolicLinksSync();
+    } catch (_) {
+      return p;
+    }
+  }
+
+  void _resetScanUi({required String status}) {
+    scanProgress.value = 0;
+    totalToScan.value = 0;
+    filesFound.value = 0;
+    scanPercent.value = 0;
+    scanIndeterminate.value = true;
+    scanStatus.value = status;
+  }
+
   @override
   void onInit() {
     super.onInit();
@@ -79,160 +117,201 @@ class StorageAnalyzerController extends GetxController {
   Future<void> scanLargeFiles() async {
     isScanningLargeFiles.value = true;
     largeFiles.clear();
-    scanProgress.value = 0;
-    totalToScan.value = 0;
-    filesFound.value = 0;
-    scanStatus.value = 'Preparing to scan...';
-    
+    _resetScanUi(status: 'Scanning storage…');
+
     try {
       final manageGranted = await Permission.manageExternalStorage.isGranted;
       final storageGranted = await Permission.storage.isGranted;
-      
-      if (manageGranted || storageGranted) {
-        Directory root = await _getPrimaryStorage();
-        if (root.existsSync()) {
-          scanStatus.value = 'Calculating total files...';
-          int total = await _countFiles(root);
-          totalToScan.value = total;
-          
-          List<File> result = [];
-          await _findLargeFiles(root, result);
-          result.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
-          largeFiles.assignAll(result.take(50));
-        }
+
+      if (!(manageGranted || storageGranted)) {
+        scanStatus.value = 'Storage permission required';
+        return;
       }
+
+      final root = await _getPrimaryStorage();
+      if (!root.existsSync()) {
+        scanStatus.value = 'Storage not available';
+        return;
+      }
+
+      final result = <File>[];
+      var scanned = 0;
+      // Soft progress — storage walks have unknown size; climb toward 92%.
+      scanIndeterminate.value = false;
+      scanPercent.value = 2;
+
+      await _findLargeFiles(root, result, onFile: () async {
+        scanned++;
+        filesFound.value = scanned;
+        if (scanned % 30 == 0) {
+          scanPercent.value = (2 + (scanned / (scanned + 400)) * 90).clamp(2, 92);
+          scanStatus.value = 'Found ${result.length} large · checked $scanned';
+          await Future.delayed(Duration.zero);
+        }
+      });
+
+      result.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
+      largeFiles.assignAll(result.take(50));
+      scanPercent.value = 100;
+      scanStatus.value = 'Done';
     } catch (e) {
       Get.log('Large Scan - Error: $e');
+      scanStatus.value = 'Scan failed';
     } finally {
       isScanningLargeFiles.value = false;
-      scanStatus.value = '';
     }
   }
 
-  Future<int> _countFiles(Directory dir) async {
-    int count = 0;
-    try {
-      if (!dir.existsSync()) return 0;
-      await for (var entity in dir.list(recursive: false, followLinks: false)) {
-        if (entity is File) {
-          count++;
-          if (count % 50 == 0) {
-            filesFound.value = count;
-            await Future.delayed(Duration.zero);
-          }
-        } else if (entity is Directory) {
-          String path = entity.path.toLowerCase();
-          if (!path.contains('/.') && !path.contains('/android') && !path.contains('/obb')) {
-            count += await _countFiles(entity);
-          }
-        }
-      }
-      filesFound.value = count; // Final update for this folder
-    } catch (e) {}
-    return count;
-  }
-
-  Future<void> _findLargeFiles(Directory dir, List<File> result) async {
+  Future<void> _findLargeFiles(
+    Directory dir,
+    List<File> result, {
+    Future<void> Function()? onFile,
+  }) async {
     try {
       if (!dir.existsSync()) return;
-      await for (var entity in dir.list(recursive: false, followLinks: false)) {
+      await for (final entity in dir.list(recursive: false, followLinks: false)) {
         if (entity is File) {
-          // Avoid rebuilding UI on every file — update progress every 80 files.
-          if (scanProgress.value % 80 == 0) {
-            scanStatus.value = 'Scanning: ${entity.path.split('/').last}';
-          }
-          scanProgress.value++;
-          
-          // Yield occasionally to keep UI responsive
-          if (scanProgress.value % 80 == 0) {
-            await Future.delayed(Duration.zero);
-          }
-          
           try {
-            if (await entity.length() > 10 * 1024 * 1024) { // > 10MB
+            if (await entity.length() > 10 * 1024 * 1024) {
               result.add(entity);
             }
-          } catch (e) {}
+          } catch (_) {}
+          if (onFile != null) await onFile();
         } else if (entity is Directory) {
-          String path = entity.path.toLowerCase();
-          if (!path.contains('/.') && !path.contains('/android') && !path.contains('/obb')) {
-            await _findLargeFiles(entity, result);
+          final path = entity.path.toLowerCase();
+          if (!path.contains('/.') &&
+              !path.contains('/android') &&
+              !path.contains('/obb')) {
+            await _findLargeFiles(entity, result, onFile: onFile);
           }
         }
       }
-    } catch (e) {}
+    } catch (_) {}
   }
 
   Future<void> findAllDuplicateFiles() async {
     isScanningDuplicates.value = true;
     duplicateFilesList.clear();
-    scanProgress.value = 0;
-    totalToScan.value = 0;
-    filesFound.value = 0;
-    scanStatus.value = 'Preparing to scan...';
+    _resetScanUi(status: 'Scanning storage…');
 
     try {
       final manageGranted = await Permission.manageExternalStorage.isGranted;
       final storageGranted = await Permission.storage.isGranted;
 
-      if (manageGranted || storageGranted) {
-        Directory root = await _getPrimaryStorage();
-        if (root.existsSync()) {
-          scanStatus.value = 'Calculating total files...';
-          int total = await _countFiles(root);
-          totalToScan.value = total;
-          
-          Map<int, List<File>> sizeGroups = {};
-          await _groupFilesBySize(root, sizeGroups);
+      if (!(manageGranted || storageGranted)) {
+        scanStatus.value = 'Storage permission required';
+        return;
+      }
 
-          Get.log('Duplicate Scan - Size groups: ${sizeGroups.length}');
-          
-          List<File> candidates = [];
-          sizeGroups.values.forEach((list) {
-            if (list.length > 1) {
-              for (var file in list) {
-                try {
-                  if (file.lengthSync() > 50 * 1024) {
-                    candidates.add(file);
-                  }
-                } catch (e) {}
-              }
+      final root = await _getPrimaryStorage();
+      if (!root.existsSync()) {
+        scanStatus.value = 'Storage not available';
+        return;
+      }
+
+      // One entry per real path while indexing by size.
+      final sizeGroups = <int, List<File>>{};
+      final seenPaths = <String>{};
+      var scanned = 0;
+      scanIndeterminate.value = false;
+      scanPercent.value = 3;
+      scanStatus.value = 'Indexing files…';
+
+      await _groupFilesBySize(root, sizeGroups, seenPaths, onFile: () async {
+        scanned++;
+        filesFound.value = scanned;
+        if (scanned % 40 == 0) {
+          scanPercent.value =
+              (3 + (scanned / (scanned + 500)) * 40).clamp(3, 43);
+          scanStatus.value = 'Indexed $scanned files…';
+          await Future.delayed(Duration.zero);
+        }
+      });
+
+      final candidates = <File>[];
+      for (final list in sizeGroups.values) {
+        if (list.length < 2) continue;
+        for (final file in list) {
+          try {
+            if (await file.length() > 50 * 1024) {
+              candidates.add(file);
             }
-          });
-          
-          Get.log('Duplicate Scan - Candidates: ${candidates.length}');
-          totalToScan.value = candidates.length;
-          scanProgress.value = 0;
-          
-          Map<String, List<File>> hashGroups = {};
-          for (var i = 0; i < candidates.length; i++) {
-            File file = candidates[i];
-            if (i % 8 == 0) {
-              scanStatus.value = 'Comparing: ${file.path.split('/').last}';
-              scanProgress.value = i + 1;
-              // Critical yield to prevent UI freeze during hashing
-              await Future.delayed(Duration.zero);
-            } else {
-              scanProgress.value = i + 1;
-            }
-            
-            String hash = await _calculateHash(file);
-            if (hash != '') {
-              hashGroups.putIfAbsent(hash, () => []).add(file);
-            }
-          }
-          
-          duplicateFilesList.assignAll(
-            hashGroups.values.where((group) => group.length > 1).toList()
-          );
+          } catch (_) {}
         }
       }
+
+      if (candidates.isEmpty) {
+        scanPercent.value = 100;
+        scanStatus.value = 'No candidates';
+        duplicateFilesList.clear();
+        return;
+      }
+
+      scanStatus.value = 'Comparing ${candidates.length} files…';
+      final quickGroups = <String, List<File>>{};
+      for (var i = 0; i < candidates.length; i++) {
+        final file = candidates[i];
+        scanPercent.value = 43 + ((i + 1) / candidates.length * 40);
+        if (i % 6 == 0) {
+          scanStatus.value = 'Comparing: ${file.path.split('/').last}';
+          await Future.delayed(Duration.zero);
+        }
+        final hash = await _quickHash(file);
+        if (hash.isNotEmpty) {
+          quickGroups.putIfAbsent(hash, () => []).add(file);
+        }
+      }
+
+      // Confirm with full hash — drops false partial matches.
+      scanStatus.value = 'Verifying duplicates…';
+      final confirmed = <List<File>>[];
+      final pending = quickGroups.values.where((g) => g.length > 1).toList();
+      for (var gi = 0; gi < pending.length; gi++) {
+        scanPercent.value = 83 + ((gi + 1) / pending.length * 17);
+        final verified = await _verifyFileDuplicateGroup(pending[gi]);
+        if (verified.length > 1) confirmed.add(verified);
+        if (gi % 2 == 0) await Future.delayed(Duration.zero);
+      }
+
+      duplicateFilesList.assignAll(confirmed);
+      scanPercent.value = 100;
+      scanStatus.value = confirmed.isEmpty
+          ? 'No true duplicates'
+          : 'Found ${confirmed.length} groups';
     } catch (e) {
       Get.log('Duplicate Scan - Error: $e');
+      scanStatus.value = 'Scan failed';
     } finally {
       isScanningDuplicates.value = false;
-      scanStatus.value = '';
     }
+  }
+
+  /// Keep only files that truly share identical bytes, on different paths.
+  Future<List<File>> _verifyFileDuplicateGroup(List<File> files) async {
+    final byPath = <String, File>{};
+    for (final f in files) {
+      byPath.putIfAbsent(_canonicalPath(f.path), () => f);
+    }
+    if (byPath.length < 2) return [];
+
+    final byFull = <String, List<File>>{};
+    for (final f in byPath.values) {
+      if (!f.existsSync()) continue;
+      final h = await _fullHash(f);
+      if (h.isEmpty) continue;
+      byFull.putIfAbsent(h, () => []).add(f);
+    }
+
+    // Return the largest verified identical set (usually one).
+    List<File> best = [];
+    for (final g in byFull.values) {
+      final unique = <String, File>{};
+      for (final f in g) {
+        unique[_canonicalPath(f.path)] = f;
+      }
+      if (unique.length > best.length) best = unique.values.toList();
+    }
+    return best.length > 1 ? best : [];
   }
 
   Future<Directory> _getPrimaryStorage() async {
@@ -252,106 +331,220 @@ class StorageAnalyzerController extends GetxController {
     return root; 
   }
 
-  Future<void> _groupFilesBySize(Directory dir, Map<int, List<File>> groups) async {
+  Future<void> _groupFilesBySize(
+    Directory dir,
+    Map<int, List<File>> groups,
+    Set<String> seenPaths, {
+    Future<void> Function()? onFile,
+  }) async {
     try {
       if (!dir.existsSync()) return;
-      await for (var entity in dir.list(recursive: false, followLinks: false)) {
+      await for (final entity in dir.list(recursive: false, followLinks: false)) {
         if (entity is File) {
           try {
-            int size = await entity.length();
-            if (size > 0) {
-              groups.putIfAbsent(size, () => []).add(entity);
+            final canon = _canonicalPath(entity.path);
+            if (!seenPaths.add(canon)) {
+              if (onFile != null) await onFile();
+              continue;
             }
-          } catch (e) {}
+            final size = await entity.length();
+            if (size > 0) {
+              groups.putIfAbsent(size, () => []).add(File(canon));
+            }
+          } catch (_) {}
+          if (onFile != null) await onFile();
         } else if (entity is Directory) {
-          String path = entity.path.toLowerCase();
-          if (!path.contains('/.') && 
-              !path.contains('/android/data') && 
+          final path = entity.path.toLowerCase();
+          if (!path.contains('/.') &&
+              !path.contains('/android/data') &&
               !path.contains('/android/obb')) {
-            await _groupFilesBySize(entity, groups);
+            await _groupFilesBySize(entity, groups, seenPaths, onFile: onFile);
           }
         }
       }
-    } catch (e) {}
+    } catch (_) {}
   }
-
-
 
   Future<void> findDuplicateImages() async {
     isScanningImages.value = true;
     duplicateImages.clear();
-    scanProgress.value = 0;
-    totalToScan.value = 0;
-    scanStatus.value = 'Accessing gallery...';
+    _imagePathById.clear();
+    _resetScanUi(status: 'Accessing gallery…');
 
     try {
       final PermissionState ps = await PhotoManager.requestPermissionExtend();
-      if (ps.isAuth) {
-        List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(type: RequestType.image);
-        List<AssetEntity> allImages = [];
-        
-        for (var album in albums) {
-          int count = await album.assetCountAsync;
-          List<AssetEntity> albumAssets = await album.getAssetListRange(start: 0, end: count);
-          allImages.addAll(albumAssets);
-        }
-        
-        totalToScan.value = allImages.length;
-        scanProgress.value = 0;
-        
-        Map<String, List<AssetEntity>> hashGroups = {};
-        
-        for (var i = 0; i < allImages.length; i++) {
-          AssetEntity image = allImages[i];
-          if (i % 8 == 0) {
-            scanStatus.value = 'Analyzing: ${image.title ?? 'Image ${i + 1}'}';
-            scanProgress.value = i + 1;
-            // Yield to keep UI smooth
-            await Future.delayed(Duration.zero);
-          } else {
-            scanProgress.value = i + 1;
-          }
-          
-          File? file = await image.file;
-          if (file != null) {
-            String hash = await _calculateHash(file);
-            if (hashGroups.containsKey(hash)) {
-              hashGroups[hash]!.add(image);
-            } else {
-              hashGroups[hash] = [image];
-            }
-          }
-        }
-        
-        duplicateImages.assignAll(hashGroups.values.where((group) => group.length > 1).toList());
+      if (!ps.isAuth) {
+        scanStatus.value = 'Gallery permission required';
+        return;
       }
+
+      final albums = await PhotoManager.getAssetPathList(
+        type: RequestType.image,
+        onlyAll: true,
+      );
+      if (albums.isEmpty) {
+        scanPercent.value = 100;
+        return;
+      }
+
+      final album = albums.first;
+      final count = await album.assetCountAsync;
+      final allImages = <AssetEntity>[];
+      const pageSize = 80;
+      scanIndeterminate.value = false;
+      for (var start = 0; start < count; start += pageSize) {
+        final end = (start + pageSize).clamp(0, count);
+        final page = await album.getAssetListRange(start: start, end: end);
+        allImages.addAll(page);
+        filesFound.value = allImages.length;
+        scanPercent.value =
+            count == 0 ? 8 : (allImages.length / count * 25).clamp(0, 25);
+        scanStatus.value = 'Loading gallery… ${allImages.length}/$count';
+        await Future.delayed(Duration.zero);
+      }
+
+      // Unique by MediaStore id first.
+      final byId = <String, AssetEntity>{};
+      for (final img in allImages) {
+        byId.putIfAbsent(img.id, () => img);
+      }
+      final uniqueImages = byId.values.toList();
+
+      // Resolve each asset to ONE canonical disk path. Same photo under
+      // multiple ids/aliases collapses to a single entry.
+      final byPath = <String, AssetEntity>{};
+      for (var i = 0; i < uniqueImages.length; i++) {
+        final image = uniqueImages[i];
+        scanPercent.value =
+            25 + ((i + 1) / uniqueImages.length * 25).clamp(0, 25);
+        if (i % 8 == 0) {
+          scanStatus.value = 'Resolving: ${image.title ?? 'Image ${i + 1}'}';
+          filesFound.value = i + 1;
+          await Future.delayed(Duration.zero);
+        }
+
+        File? file;
+        try {
+          file = await image.originFile;
+        } catch (_) {}
+        file ??= await image.file;
+        if (file == null) continue;
+        final canon = _canonicalPath(file.path);
+        if (!File(canon).existsSync()) continue;
+
+        // Keep the first asset for this real file path.
+        if (byPath.containsKey(canon)) continue;
+        byPath[canon] = image;
+        _imagePathById[image.id] = canon;
+      }
+
+      final pathEntries = byPath.entries.toList();
+      if (pathEntries.isEmpty) {
+        scanPercent.value = 100;
+        duplicateImages.clear();
+        return;
+      }
+
+      // Quick hash by size groups would help, but gallery set is smaller —
+      // hash each unique path once.
+      scanStatus.value = 'Comparing ${pathEntries.length} photos…';
+      final quickGroups = <String, List<MapEntry<String, AssetEntity>>>{};
+      for (var i = 0; i < pathEntries.length; i++) {
+        final entry = pathEntries[i];
+        scanPercent.value =
+            50 + ((i + 1) / pathEntries.length * 30).clamp(0, 30);
+        if (i % 6 == 0) {
+          scanStatus.value =
+              'Comparing: ${entry.value.title ?? 'Image ${i + 1}'}';
+          await Future.delayed(Duration.zero);
+        }
+        final hash = await _quickHash(File(entry.key));
+        if (hash.isEmpty) continue;
+        quickGroups.putIfAbsent(hash, () => []).add(entry);
+      }
+
+      scanStatus.value = 'Verifying duplicates…';
+      final confirmed = <List<AssetEntity>>[];
+      final pending =
+          quickGroups.values.where((g) => g.length > 1).toList();
+      for (var gi = 0; gi < pending.length; gi++) {
+        scanPercent.value = 80 + ((gi + 1) / pending.length * 20);
+        final verified = await _verifyImageDuplicateGroup(pending[gi]);
+        if (verified.length > 1) confirmed.add(verified);
+        if (gi % 2 == 0) await Future.delayed(Duration.zero);
+      }
+
+      duplicateImages.assignAll(confirmed);
+      scanPercent.value = 100;
+      scanStatus.value = confirmed.isEmpty
+          ? 'No true duplicates'
+          : 'Found ${confirmed.length} groups';
     } catch (e) {
       Get.log('Error scanning duplicate images: $e');
+      scanStatus.value = 'Scan failed';
     } finally {
       isScanningImages.value = false;
-      scanStatus.value = '';
     }
   }
 
-  Future<String> _calculateHash(File file) async {
-    try {
-      int size = await file.length();
-      // For performance, hash first 64KB + last 64KB + size
-      var raf = await file.open();
-      var head = await raf.read(64 * 1024);
-      
-      List<int> combined;
-      if (size > 128 * 1024) {
-        await raf.setPosition(size - 64 * 1024);
-        var tail = await raf.read(64 * 1024);
-        combined = [...head, ...tail];
-      } else {
-        combined = head;
+  Future<List<AssetEntity>> _verifyImageDuplicateGroup(
+    List<MapEntry<String, AssetEntity>> entries,
+  ) async {
+    final byFull = <String, List<MapEntry<String, AssetEntity>>>{};
+    for (final e in entries) {
+      final f = File(e.key);
+      if (!f.existsSync()) continue;
+      final h = await _fullHash(f);
+      if (h.isEmpty) continue;
+      byFull.putIfAbsent(h, () => []).add(e);
+    }
+
+    List<AssetEntity> best = [];
+    for (final g in byFull.values) {
+      final uniquePaths = <String, AssetEntity>{};
+      for (final e in g) {
+        uniquePaths[e.key] = e.value;
       }
-      await raf.close();
-      
-      return '$size-${md5.convert(combined)}';
-    } catch (e) {
+      if (uniquePaths.length > best.length) {
+        best = uniquePaths.values.toList();
+      }
+    }
+    return best.length > 1 ? best : [];
+  }
+
+  /// Fast candidate hash (size + sampled chunks).
+  Future<String> _quickHash(File file) async {
+    try {
+      final size = await file.length();
+      if (size <= 0) return '';
+      if (size <= 1024 * 1024) {
+        return '$size-${md5.convert(await file.readAsBytes())}';
+      }
+      final raf = await file.open();
+      try {
+        final head = await raf.read(128 * 1024);
+        final midPos = (size ~/ 2) - (64 * 1024);
+        await raf.setPosition(midPos.clamp(0, size - 1));
+        final mid = await raf.read(128 * 1024);
+        await raf.setPosition(size - 128 * 1024);
+        final tail = await raf.read(128 * 1024);
+        return '$size-${md5.convert([...head, ...mid, ...tail])}';
+      } finally {
+        await raf.close();
+      }
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Full-file MD5 — used to confirm a candidate group is a real duplicate.
+  Future<String> _fullHash(File file) async {
+    try {
+      final size = await file.length();
+      if (size <= 0) return '';
+      final digest = await md5.bind(file.openRead()).first;
+      return '$size-$digest';
+    } catch (_) {
       return '';
     }
   }
@@ -368,27 +561,98 @@ class StorageAnalyzerController extends GetxController {
 
   Future<void> deleteAsset(AssetEntity asset) async {
     try {
-      final List<String> result = await PhotoManager.editor.deleteWithIds([asset.id]);
-      if (result.isNotEmpty) {
-        // Asset deleted successfully
-      } else {
+      final deletedPath =
+          _imagePathById[asset.id] ?? await _resolveAssetPath(asset);
+
+      final List<String> result =
+          await PhotoManager.editor.deleteWithIds([asset.id]);
+      if (result.isEmpty) {
         throw Exception('Failed to delete asset');
       }
+
+      _imagePathById.remove(asset.id);
+      // If other listed "copies" were actually the same path, drop them too.
+      await _pruneImageGroupsAfterDelete(
+        deletedAssetId: asset.id,
+        deletedPath: deletedPath,
+      );
     } catch (e) {
       Get.log('Error deleting asset: $e');
       rethrow;
     }
   }
 
+  Future<String?> _resolveAssetPath(AssetEntity asset) async {
+    try {
+      File? file;
+      try {
+        file = await asset.originFile;
+      } catch (_) {}
+      file ??= await asset.file;
+      if (file == null) return null;
+      return _canonicalPath(file.path);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _pruneImageGroupsAfterDelete({
+    required String deletedAssetId,
+    String? deletedPath,
+  }) async {
+    final next = <List<AssetEntity>>[];
+    for (final group in duplicateImages) {
+      final kept = <AssetEntity>[];
+      final seenPaths = <String>{};
+      for (final a in group) {
+        if (a.id == deletedAssetId) continue;
+        final path = _imagePathById[a.id] ?? await _resolveAssetPath(a);
+        if (path == null) continue;
+        if (deletedPath != null && path == deletedPath) continue;
+        // Drop if the file is already gone from disk.
+        if (!File(path).existsSync()) {
+          _imagePathById.remove(a.id);
+          continue;
+        }
+        if (!seenPaths.add(path)) continue;
+        _imagePathById[a.id] = path;
+        kept.add(a);
+      }
+      if (kept.length > 1) next.add(kept);
+    }
+    duplicateImages.assignAll(next);
+  }
+
   Future<void> deleteFile(File file) async {
     try {
-      if (file.existsSync()) {
-        await file.delete();
+      final path = _canonicalPath(file.path);
+      final f = File(path);
+      if (f.existsSync()) {
+        await f.delete();
       }
+      _removeFileFromDuplicateGroups(path);
     } catch (e) {
       Get.log('Error deleting file: $e');
       rethrow;
     }
+  }
+
+  void _removeFileFromDuplicateGroups(String path) {
+    final canon = _canonicalPath(path);
+    final next = <List<File>>[];
+    for (final group in duplicateFilesList) {
+      final kept = <File>[];
+      final seen = <String>{};
+      for (final f in group) {
+        final p = _canonicalPath(f.path);
+        if (p == canon) continue;
+        if (!File(p).existsSync()) continue;
+        if (!seen.add(p)) continue;
+        kept.add(File(p));
+      }
+      if (kept.length > 1) next.add(kept);
+    }
+    duplicateFilesList.assignAll(next);
   }
 
   Future<void> cleanCache() async {

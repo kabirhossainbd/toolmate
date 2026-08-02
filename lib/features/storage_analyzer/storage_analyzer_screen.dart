@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 import 'storage_analyzer_controller.dart';
-import 'dart:io';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'duplicate_images_screen.dart';
 import 'large_files_screen.dart';
@@ -21,16 +19,26 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
     return AppUi.gradientScaffold(
       context: context,
       appBar: AppBar(
-        title: Text('Storage Analyzer', style: openSansBold.copyWith(fontSize: 18)),
+        leadingWidth: 56,
+        leading: IconButton(
+          tooltip: 'Back',
+          onPressed: () => Get.back(),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+        ),
+        title: Text('Storage Analyzer', style: openSansBold.copyWith(fontSize: 17)),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Refresh',
-            onPressed: () => controller.refreshData(),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              icon: const Icon(Icons.refresh_rounded),
+              tooltip: 'Refresh',
+              onPressed: () => controller.refreshData(),
+            ),
           ),
         ],
       ),
       body: SafeArea(
+        top: false,
         child: Obx(() {
           if (controller.isLoading.value) {
             return Center(
@@ -84,7 +92,13 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Text(title, style: openSansBold.copyWith(fontSize: 18)),
+      child: Text(
+        title,
+        style: openSansBold.copyWith(
+          fontSize: 16,
+          color: Get.theme.colorScheme.onSurface.withValues(alpha: 0.85),
+        ),
+      ),
     );
   }
 
@@ -219,14 +233,25 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Quick Clean', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      Text('Remove cache and temp files', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                      Text('Quick Clean',
+                          style: openSansSemiBold.copyWith(fontSize: 15)),
+                      Text(
+                        'Remove cache and temp files',
+                        style: openSansRegular.copyWith(
+                          fontSize: 12.5,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.55),
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 Text(
                   '${controller.cacheSize.value.toStringAsFixed(1)} MB',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange),
+                  style: openSansBold.copyWith(
+                      fontSize: 13, color: Colors.orange),
                 ),
               ],
             ),
@@ -516,94 +541,24 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
           ),
           child: Icon(icon, color: color, size: 20),
         ),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: subtitle,
-        trailing: const Icon(Icons.chevron_right_rounded),
+        title: Text(title, style: openSansSemiBold.copyWith(fontSize: 15)),
+        subtitle: DefaultTextStyle(
+          style: openSansRegular.copyWith(
+            fontSize: 12.5,
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.55),
+          ),
+          child: subtitle,
+        ),
+        trailing: Icon(
+          Icons.chevron_right_rounded,
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.35),
+        ),
         onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
-    );
-  }
-
-  Widget _buildBottomSheetContainer(BuildContext context, {required String title, required Widget child}) {
-    return Container(
-      height: Get.height * 0.8,
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-      ),
-      child: Column(
-        children: [
-          const SizedBox(height: 12),
-          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Get.back()),
-              ],
-            ),
-          ),
-          Expanded(child: child),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyState(String message) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.search_off_rounded, size: 64, color: Colors.grey[300]),
-          const SizedBox(height: 16),
-          Text(message, style: TextStyle(color: Colors.grey[600])),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFileItem({required String name, required String size, required VoidCallback onDelete}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Get.theme.scaffoldBackgroundColor,
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: ListTile(
-        leading: const Icon(Icons.insert_drive_file_rounded, color: Colors.blue),
-        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14)),
-        subtitle: Text(size, style: const TextStyle(fontSize: 12)),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
-          onPressed: onDelete,
-        ),
-      ),
-    );
-  }
-
-  void _confirmDeleteFile(File file, VoidCallback onDeleted) {
-    Get.defaultDialog(
-      title: 'Delete File',
-      titleStyle: const TextStyle(fontWeight: FontWeight.bold),
-      middleText: 'This action cannot be undone. Are you sure?',
-      textConfirm: 'Delete',
-      textCancel: 'Cancel',
-      confirmTextColor: Colors.white,
-      buttonColor: Colors.red,
-      onConfirm: () async {
-        try {
-          await controller.deleteFile(file);
-          onDeleted();
-          Get.back();
-          Get.snackbar('Deleted', 'File removed successfully', snackPosition: SnackPosition.BOTTOM);
-        } catch (e) {
-          Get.back();
-          Get.snackbar('Error', 'Could not delete file', backgroundColor: Colors.red, colorText: Colors.white);
-        }
-      },
     );
   }
 }

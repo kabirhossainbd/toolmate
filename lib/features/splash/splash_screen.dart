@@ -102,6 +102,13 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _goHome() async {
     await Future.delayed(const Duration(milliseconds: 2500));
     if (!mounted) return;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ));
     Get.offAllNamed(Routes.home);
   }
 

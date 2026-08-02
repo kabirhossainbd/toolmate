@@ -639,4 +639,58 @@ class NotificationHistoryController extends GetxController {
     resetFilters();
     readStateVersion.value++;
   }
+
+  void deleteNotification(String id) {
+    if (id.isEmpty) return;
+    final keys = <dynamic>[];
+    for (final key in box.keys.toList()) {
+      final n = box.get(key);
+      if (n?.id == id) keys.add(key);
+    }
+    for (final key in keys) {
+      box.delete(key);
+    }
+    _seenIds.remove(id);
+    _loadFromHive();
+    readStateVersion.value++;
+  }
+
+  void deleteByPackage(String packageName) {
+    if (packageName.isEmpty) return;
+    final keys = <dynamic>[];
+    final removedIds = <String>{};
+    for (final key in box.keys.toList()) {
+      final n = box.get(key);
+      if (n?.packageName == packageName) {
+        keys.add(key);
+        if (n != null) removedIds.add(n.id);
+      }
+    }
+    for (final key in keys) {
+      box.delete(key);
+    }
+    _seenIds.removeAll(removedIds);
+    _loadFromHive();
+    readStateVersion.value++;
+  }
+
+  void deleteBySender(String packageName, String senderName) {
+    if (packageName.isEmpty) return;
+    final keys = <dynamic>[];
+    final removedIds = <String>{};
+    for (final key in box.keys.toList()) {
+      final n = box.get(key);
+      if (n == null) continue;
+      if (n.packageName == packageName && n.senderName == senderName) {
+        keys.add(key);
+        removedIds.add(n.id);
+      }
+    }
+    for (final key in keys) {
+      box.delete(key);
+    }
+    _seenIds.removeAll(removedIds);
+    _loadFromHive();
+    readStateVersion.value++;
+  }
 }

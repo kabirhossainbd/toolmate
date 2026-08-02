@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'storage_analyzer_controller.dart';
 import 'dart:io';
 
@@ -21,10 +20,20 @@ class StorageExplorerScreen extends GetView<StorageAnalyzerController> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Storage', style: TextStyle(fontWeight: FontWeight.bold)),
+        leadingWidth: 56,
+        leading: IconButton(
+          tooltip: 'Back',
+          onPressed: () => Get.back(),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+        ),
+        title: Text(
+          path == '/storage/emulated/0' ? 'Storage Explorer' : path.split('/').last,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+        ),
         centerTitle: true,
       ),
       body: SafeArea(
+        top: false,
         child: Column(
           children: [
             _buildHeader(),
