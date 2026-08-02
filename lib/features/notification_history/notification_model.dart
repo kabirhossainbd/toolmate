@@ -57,6 +57,9 @@ class NotificationModel extends HiveObject {
   @HiveField(5)
   final Uint8List? senderIcon;
 
+  @HiveField(6, defaultValue: false)
+  bool isRead;
+
   NotificationModel({
     required this.id,
     required this.packageName,
@@ -64,8 +67,11 @@ class NotificationModel extends HiveObject {
     required String text,
     required this.timestamp,
     this.senderIcon,
+    this.isRead = false,
   })  : title = sanitizeUtf16(title),
         text = sanitizeUtf16(text);
+
+  String get senderName => title.isNotEmpty ? title : 'Unknown';
 
   Map<String, dynamic> toJson() {
     return {
@@ -75,17 +81,27 @@ class NotificationModel extends HiveObject {
       'text': text,
       'timestamp': timestamp.toIso8601String(),
       'senderIcon': senderIcon,
+      'isRead': isRead,
     };
   }
 
   factory NotificationModel.fromJson(Map<String, dynamic> json) {
+    Uint8List? icon;
+    final rawIcon = json['senderIcon'];
+    if (rawIcon is Uint8List) {
+      icon = rawIcon;
+    } else if (rawIcon is List) {
+      icon = Uint8List.fromList(List<int>.from(rawIcon));
+    }
+
     return NotificationModel(
       id: json['id']?.toString() ?? '',
       packageName: json['packageName']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
       text: json['text']?.toString() ?? '',
-      timestamp: DateTime.parse(json['timestamp']),
-      senderIcon: json['senderIcon'] != null ? Uint8List.fromList(List<int>.from(json['senderIcon'])) : null,
+      timestamp: DateTime.parse(json['timestamp'].toString()),
+      senderIcon: icon,
+      isRead: json['isRead'] == true,
     );
   }
 }

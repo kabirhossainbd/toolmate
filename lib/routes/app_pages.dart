@@ -2,6 +2,7 @@ import 'package:get/get.dart';
 import 'package:toolmate/features/notification_history/notification_history_controller.dart';
 import 'package:toolmate/features/user_profile/user_profile_controller.dart';
 import 'package:toolmate/features/user_profile/user_profile_screen.dart';
+import 'package:flutter/material.dart';
 import 'app_routes.dart';
 import '../features/home/home_screen.dart';
 import '../features/home/home_controller.dart';
@@ -43,7 +44,44 @@ class AppPages {
       page: () => const NotificationHistoryScreen(),
       transition: Transition.cupertino,
       binding: BindingsBuilder(() {
-        Get.put(NotificationHistoryController());
+        if (!Get.isRegistered<NotificationHistoryController>()) {
+          Get.put(NotificationHistoryController());
+        }
+      }),
+    ),
+    GetPage(
+      name: Routes.notificationApp,
+      page: () {
+        final args = Get.arguments as Map<String, dynamic>? ?? {};
+        return AppNotificationsScreen(
+          packageName: args['packageName']?.toString() ?? '',
+          appName: args['appName']?.toString() ?? 'App',
+          appColor: args['appColor'] as Color? ?? Colors.orangeAccent,
+        );
+      },
+      transition: Transition.cupertino,
+      binding: BindingsBuilder(() {
+        if (!Get.isRegistered<NotificationHistoryController>()) {
+          Get.put(NotificationHistoryController());
+        }
+      }),
+    ),
+    GetPage(
+      name: Routes.notificationChat,
+      page: () {
+        final args = Get.arguments as Map<String, dynamic>? ?? {};
+        return SenderConversationScreen(
+          packageName: args['packageName']?.toString() ?? '',
+          appName: args['appName']?.toString() ?? 'App',
+          senderName: args['senderName']?.toString() ?? 'Unknown',
+          appColor: args['appColor'] as Color? ?? Colors.orangeAccent,
+        );
+      },
+      transition: Transition.cupertino,
+      binding: BindingsBuilder(() {
+        if (!Get.isRegistered<NotificationHistoryController>()) {
+          Get.put(NotificationHistoryController());
+        }
       }),
     ),
     GetPage(

@@ -7,22 +7,28 @@ import 'package:share_plus/share_plus.dart';
 
 class NotificationHistoryController extends GetxController {
   late Box<NotificationModel> box;
-  
+
   final notifications = <NotificationModel>[].obs;
   final filteredNotifications = <NotificationModel>[].obs;
-  
-  // Grouped by packageName
-  // Map<String, List<NotificationModel>>
+
   final groupedNotifications = <String, List<NotificationModel>>{}.obs;
-  
+
   final searchQuery = ''.obs;
   final selectedApp = 'All'.obs;
-  
+
   final uniqueApps = <String>['All'].obs;
   final isServiceRunning = false.obs;
-  
-  // Sorting options: 'New First', 'Old First', 'A-Z', 'Z-A'
+
   final sortOrder = 'New First'.obs;
+
+  /// Time range: All | Today | Yesterday | This Week | This Month | Custom
+  final timeFilter = 'All'.obs;
+  final Rxn<DateTime> customStart = Rxn<DateTime>();
+  final Rxn<DateTime> customEnd = Rxn<DateTime>();
+  final unreadOnly = false.obs;
+
+  /// Bumps when read-state changes so nested screens rebuild.
+  final readStateVersion = 0.obs;
 
   @override
   void onInit() {
@@ -33,25 +39,33 @@ class NotificationHistoryController extends GetxController {
   }
 
   void _loadFromHive() {
-    _deduplicateHive(); // Clean up any duplicates stored in previous sessions
+    _deduplicateHive();
     notifications.assignAll(box.values.toList().reversed);
     _updateUniqueApps();
     _applyFilters();
   }
 
-  /// Removes duplicate entries from Hive that share the same notification ID.
-  /// Keeps only the latest (last stored) entry for each ID.
+  /// Re-open box so BG-isolate writes (with avatar) become visible.
+  Future<void> refreshFromDisk() async {
+    try {
+      final name = box.name;
+      if (box.isOpen) await box.close();
+      box = await Hive.openBox<NotificationModel>(name);
+      _loadFromHive();
+    } catch (_) {
+      // Keep existing in-memory list if reopen fails.
+    }
+  }
+
   void _deduplicateHive() {
     final seen = <String>{};
     final keysToDelete = <dynamic>[];
 
-    // Iterate in reverse so we keep the LAST (most recent) entry for each ID
     final allKeys = box.keys.toList().reversed.toList();
     for (final key in allKeys) {
       final notif = box.get(key);
       if (notif == null) continue;
       if (notif.id.isEmpty || seen.add(notif.id)) continue;
-      // Duplicate found — mark for deletion
       keysToDelete.add(key);
     }
 
@@ -63,34 +77,30 @@ class NotificationHistoryController extends GetxController {
   Future<void> _initService() async {
     bool status = await NotificationListenerService.isPermissionGranted();
     if (!status) {
-       status = await NotificationListenerService.requestPermission();
+      status = await NotificationListenerService.requestPermission();
     }
-    
+
     if (status) {
-      if (isServiceRunning.value) return; // Already initialized
+      if (isServiceRunning.value) return;
       isServiceRunning.value = true;
-      
-      // Listen for notifications captured by the background service
-      FlutterBackgroundService().on('onNotificationCaptured').listen((event) {
-        if (event == null) return;
-        final newNotif = NotificationModel.fromJson(Map<String, dynamic>.from(event));
-        
-        // Add to memory list
-        notifications.insert(0, newNotif);
-        _updateUniqueApps();
-        _applyFilters();
+
+      FlutterBackgroundService().on('onNotificationCaptured').listen((event) async {
+        // BG isolate wrote Hive (with avatar). Refresh main isolate from disk.
+        await Future.delayed(const Duration(milliseconds: 150));
+        await refreshFromDisk();
       });
 
-      // Also ensure the service is running
       final isRunning = await FlutterBackgroundService().isRunning();
       if (!isRunning) {
         FlutterBackgroundService().startService();
       }
     } else {
-       Get.snackbar('Permission Denied', 'Notification access is required to capture notifications.');
+      Get.snackbar(
+        'Permission Denied',
+        'Notification access is required to capture notifications.',
+      );
     }
   }
-
 
   void _updateUniqueApps() {
     final apps = notifications.map((e) => e.packageName).toSet().toList();
@@ -113,29 +123,90 @@ class NotificationHistoryController extends GetxController {
     _applyFilters();
   }
 
+  void updateTimeFilter(String filter) {
+    timeFilter.value = filter;
+    if (filter != 'Custom') {
+      customStart.value = null;
+      customEnd.value = null;
+    }
+    _applyFilters();
+  }
+
+  void updateCustomRange(DateTime start, DateTime end) {
+    customStart.value = DateTime(start.year, start.month, start.day);
+    customEnd.value = DateTime(end.year, end.month, end.day, 23, 59, 59);
+    timeFilter.value = 'Custom';
+    _applyFilters();
+  }
+
+  void toggleUnreadOnly(bool value) {
+    unreadOnly.value = value;
+    _applyFilters();
+  }
+
   void resetFilters() {
     searchQuery.value = '';
     selectedApp.value = 'All';
     sortOrder.value = 'New First';
+    timeFilter.value = 'All';
+    customStart.value = null;
+    customEnd.value = null;
+    unreadOnly.value = false;
     _applyFilters();
+  }
+
+  bool _inTimeRange(NotificationModel n) {
+    final t = n.timestamp;
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+
+    switch (timeFilter.value) {
+      case 'Today':
+        return !t.isBefore(todayStart);
+      case 'Yesterday':
+        final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+        return !t.isBefore(yesterdayStart) && t.isBefore(todayStart);
+      case 'This Week':
+        final weekStart =
+            todayStart.subtract(Duration(days: todayStart.weekday - 1));
+        return !t.isBefore(weekStart);
+      case 'This Month':
+        final monthStart = DateTime(now.year, now.month, 1);
+        return !t.isBefore(monthStart);
+      case 'Custom':
+        final start = customStart.value;
+        final end = customEnd.value;
+        if (start == null || end == null) return true;
+        return !t.isBefore(start) && !t.isAfter(end);
+      case 'All':
+      default:
+        return true;
+    }
   }
 
   void _applyFilters() {
     var result = notifications.toList();
-    
+
     if (selectedApp.value != 'All') {
       result = result.where((e) => e.packageName == selectedApp.value).toList();
     }
-    
-    if (searchQuery.value.isNotEmpty) {
-      final query = searchQuery.value.toLowerCase();
-      result = result.where((e) => 
-        e.title.toLowerCase().contains(query) || 
-        e.text.toLowerCase().contains(query) ||
-        e.packageName.toLowerCase().contains(query)).toList();
+
+    if (unreadOnly.value) {
+      result = result.where((e) => !e.isRead).toList();
     }
 
-    // Apply Sorting
+    result = result.where(_inTimeRange).toList();
+
+    if (searchQuery.value.isNotEmpty) {
+      final query = searchQuery.value.toLowerCase();
+      result = result
+          .where((e) =>
+              e.title.toLowerCase().contains(query) ||
+              e.text.toLowerCase().contains(query) ||
+              e.packageName.toLowerCase().contains(query))
+          .toList();
+    }
+
     switch (sortOrder.value) {
       case 'New First':
         result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -144,13 +215,13 @@ class NotificationHistoryController extends GetxController {
         result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
         break;
       case 'A-Z':
-        result.sort((a, b) => a.title.compareTo(b.title));
+        result.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
         break;
       case 'Z-A':
-        result.sort((a, b) => b.title.compareTo(a.title));
+        result.sort((a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
         break;
     }
-    
+
     filteredNotifications.assignAll(result);
     _groupNotifications();
   }
@@ -158,59 +229,203 @@ class NotificationHistoryController extends GetxController {
   void _groupNotifications() {
     final Map<String, List<NotificationModel>> grouped = {};
     for (var notif in filteredNotifications) {
-      if (!grouped.containsKey(notif.packageName)) {
-        grouped[notif.packageName] = [];
-      }
-      grouped[notif.packageName]!.add(notif);
+      grouped.putIfAbsent(notif.packageName, () => []).add(notif);
     }
-    groupedNotifications.value = grouped;
+
+    // Keep map key order aligned with sort preference for app list.
+    if (sortOrder.value == 'A-Z' || sortOrder.value == 'Z-A') {
+      final keys = grouped.keys.toList()
+        ..sort((a, b) {
+          final cmp = a.toLowerCase().compareTo(b.toLowerCase());
+          return sortOrder.value == 'A-Z' ? cmp : -cmp;
+        });
+      groupedNotifications.value = {for (final k in keys) k: grouped[k]!};
+    } else {
+      groupedNotifications.value = grouped;
+    }
   }
 
-  /// Groups notifications for a specific [packageName] by their [title] (Sender).
-  Map<String, List<NotificationModel>> getNotificationsBySender(String packageName) {
-    var appNotifs = notifications.where((n) => n.packageName == packageName).toList();
-    
-    // Apply search if active
+  Map<String, List<NotificationModel>> getNotificationsBySender(
+      String packageName) {
+    var appNotifs =
+        notifications.where((n) => n.packageName == packageName).toList();
+
+    if (unreadOnly.value) {
+      appNotifs = appNotifs.where((n) => !n.isRead).toList();
+    }
+    appNotifs = appNotifs.where(_inTimeRange).toList();
+
     if (searchQuery.value.isNotEmpty) {
       final query = searchQuery.value.toLowerCase();
-      appNotifs = appNotifs.where((n) => 
-        n.title.toLowerCase().contains(query) || 
-        n.text.toLowerCase().contains(query)
-      ).toList();
+      appNotifs = appNotifs
+          .where((n) =>
+              n.title.toLowerCase().contains(query) ||
+              n.text.toLowerCase().contains(query))
+          .toList();
     }
 
-    // Always sort by time (latest first) within the app view
     appNotifs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
     final groups = <String, List<NotificationModel>>{};
     for (var n in appNotifs) {
-      final senderName = n.title.isNotEmpty ? n.title : 'Unknown';
-      groups.putIfAbsent(senderName, () => []).add(n);
+      groups.putIfAbsent(n.senderName, () => []).add(n);
     }
-    
-    // Sort senders by latest message timestamp
-    final sortedKeys = groups.keys.toList()..sort((a, b) {
-      final timeA = groups[a]!.first.timestamp;
-      final timeB = groups[b]!.first.timestamp;
-      return timeB.compareTo(timeA);
-    });
 
-    return { for (var k in sortedKeys) k : groups[k]! };
+    final sortedKeys = groups.keys.toList()
+      ..sort((a, b) {
+        final timeA = groups[a]!.first.timestamp;
+        final timeB = groups[b]!.first.timestamp;
+        return timeB.compareTo(timeA);
+      });
+
+    return {for (var k in sortedKeys) k: groups[k]!};
   }
 
-  Future<void> exportNotifications() async {
+  List<NotificationModel> conversationMessages(
+      String packageName, String senderName) {
+    final list = notifications
+        .where((n) =>
+            n.packageName == packageName && n.senderName == senderName)
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return list;
+  }
+
+  int unreadCountForApp(String packageName) {
+    return notifications
+        .where((n) => n.packageName == packageName && !n.isRead)
+        .length;
+  }
+
+  int unreadCountForSender(String packageName, String senderName) {
+    return notifications
+        .where((n) =>
+            n.packageName == packageName &&
+            n.senderName == senderName &&
+            !n.isRead)
+        .length;
+  }
+
+  int get totalUnread => notifications.where((n) => !n.isRead).length;
+
+  Future<void> markAllRead() async {
+    var changed = false;
+    for (final n in box.values) {
+      if (!n.isRead) {
+        n.isRead = true;
+        await n.save();
+        changed = true;
+      }
+    }
+    for (final n in notifications) {
+      if (!n.isRead) {
+        n.isRead = true;
+        changed = true;
+      }
+    }
+    if (changed) {
+      readStateVersion.value++;
+      notifications.refresh();
+      _applyFilters();
+    }
+  }
+
+  Future<void> markConversationRead(
+      String packageName, String senderName) async {
+    var changed = false;
+
+    for (final n in box.values) {
+      if (n.packageName == packageName &&
+          n.senderName == senderName &&
+          !n.isRead) {
+        n.isRead = true;
+        await n.save();
+        changed = true;
+      }
+    }
+
+    for (final n in notifications) {
+      if (n.packageName == packageName &&
+          n.senderName == senderName &&
+          !n.isRead) {
+        n.isRead = true;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      readStateVersion.value++;
+      notifications.refresh();
+      _applyFilters();
+    }
+  }
+
+  Future<void> markMessageRead(NotificationModel message) async {
+    if (message.isRead) return;
+    message.isRead = true;
+    if (message.isInBox) {
+      await message.save();
+    } else {
+      for (final n in box.values) {
+        if (n.id == message.id &&
+            n.packageName == message.packageName &&
+            n.timestamp == message.timestamp) {
+          n.isRead = true;
+          await n.save();
+          break;
+        }
+      }
+    }
+    readStateVersion.value++;
+    notifications.refresh();
+    _applyFilters();
+  }
+
+  Future<void> exportNotifications({String format = 'text'}) async {
     if (filteredNotifications.isEmpty) {
       Get.snackbar('Empty', 'No notifications to export.');
       return;
     }
 
-    String exportText = "Notification History Export:\n\n";
-    for (var n in filteredNotifications) {
-      exportText += "App: ${n.packageName}\nTime: ${n.timestamp.toString()}\nTitle: ${n.title}\nContent: ${n.text}\n--------------------------\n";
+    if (format == 'csv' || format == 'excel') {
+      final buffer = StringBuffer();
+      buffer.writeln('App,Package,Sender,Message,Time,Read');
+      for (final n in filteredNotifications) {
+        String esc(String v) => '"${v.replaceAll('"', '""')}"';
+        buffer.writeln([
+          esc(n.packageName.split('.').last),
+          esc(n.packageName),
+          esc(n.title),
+          esc(n.text),
+          esc(n.timestamp.toIso8601String()),
+          n.isRead ? 'yes' : 'no',
+        ].join(','));
+      }
+      await SharePlus.instance.share(
+        ShareParams(
+          text: buffer.toString(),
+          subject: 'Notification History Export (CSV)',
+        ),
+      );
+      return;
     }
 
-    // ignore: deprecated_member_use
-    await Share.share(exportText, subject: 'Notification History Export');
+    final buffer = StringBuffer('Notification History Export\n\n');
+    for (final n in filteredNotifications) {
+      buffer.writeln('App: ${n.packageName}');
+      buffer.writeln('Time: ${n.timestamp}');
+      buffer.writeln('Sender: ${n.title}');
+      buffer.writeln('Message: ${n.text}');
+      buffer.writeln('Read: ${n.isRead ? 'yes' : 'no'}');
+      buffer.writeln('--------------------------');
+    }
+
+    await SharePlus.instance.share(
+      ShareParams(
+        text: buffer.toString(),
+        subject: 'Notification History Export',
+      ),
+    );
   }
 
   void clearHistory() {
@@ -219,6 +434,7 @@ class NotificationHistoryController extends GetxController {
     filteredNotifications.clear();
     groupedNotifications.clear();
     _updateUniqueApps();
-    selectedApp.value = 'All';
+    resetFilters();
+    readStateVersion.value++;
   }
 }
