@@ -27,6 +27,7 @@ class AppPages {
       name: Routes.storageAnalyzer,
       page: () => const StorageAnalyzerScreen(),
       transition: Transition.cupertino,
+      transitionDuration: const Duration(milliseconds: 220),
       binding: BindingsBuilder(() {
         Get.put(StorageAnalyzerController());
       }),
@@ -35,6 +36,7 @@ class AppPages {
       name: Routes.videoDownloader,
       page: () => const VideoDownloaderScreen(),
       transition: Transition.cupertino,
+      transitionDuration: const Duration(milliseconds: 220),
       binding: BindingsBuilder(() {
         Get.put(VideoDownloaderController());
       }),
@@ -43,6 +45,7 @@ class AppPages {
       name: Routes.notificationHistory,
       page: () => const NotificationHistoryScreen(),
       transition: Transition.cupertino,
+      transitionDuration: const Duration(milliseconds: 220),
       binding: BindingsBuilder(() {
         if (!Get.isRegistered<NotificationHistoryController>()) {
           Get.put(NotificationHistoryController());
@@ -60,6 +63,7 @@ class AppPages {
         );
       },
       transition: Transition.cupertino,
+      transitionDuration: const Duration(milliseconds: 200),
       binding: BindingsBuilder(() {
         if (!Get.isRegistered<NotificationHistoryController>()) {
           Get.put(NotificationHistoryController());
@@ -78,6 +82,7 @@ class AppPages {
         );
       },
       transition: Transition.cupertino,
+      transitionDuration: const Duration(milliseconds: 200),
       binding: BindingsBuilder(() {
         if (!Get.isRegistered<NotificationHistoryController>()) {
           Get.put(NotificationHistoryController());
@@ -88,6 +93,7 @@ class AppPages {
       name: Routes.userProfile,
       page: () => const UserProfileScreen(),
       transition: Transition.cupertino,
+      transitionDuration: const Duration(milliseconds: 220),
       binding: BindingsBuilder(() {
         Get.put(UserProfileController());
       }),

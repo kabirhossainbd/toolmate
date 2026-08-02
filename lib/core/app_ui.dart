@@ -44,11 +44,11 @@ class AppUi {
         ],
       );
 
-  static List<BoxShadow> softGlow(Color color, {double opacity = 0.28}) => [
+  static List<BoxShadow> softGlow(Color color, {double opacity = 0.18}) => [
         BoxShadow(
           color: color.withValues(alpha: opacity),
-          blurRadius: 18,
-          offset: const Offset(0, 8),
+          blurRadius: 12,
+          offset: const Offset(0, 6),
         ),
       ];
 

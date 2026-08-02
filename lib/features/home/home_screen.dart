@@ -58,8 +58,8 @@ class HomeScreen extends GetView<HomeController> {
           ),
         )
             .animate()
-            .fade(duration: 450.ms)
-            .slideY(begin: -0.25, end: 0, curve: Curves.easeOutCubic),
+            .fade(duration: 250.ms)
+            .slideY(begin: -0.12, end: 0, curve: Curves.easeOutCubic),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 14),
@@ -81,8 +81,8 @@ class HomeScreen extends GetView<HomeController> {
                   onProfileTap: controller.navigateToUserProfile,
                 )
                     .animate()
-                    .fade(duration: 400.ms)
-                    .slideY(begin: 0.08, end: 0, curve: Curves.easeOutCubic),
+                    .fade(duration: 240.ms)
+                    .slideY(begin: 0.04, end: 0, curve: Curves.easeOutCubic),
               ),
             ),
             SliverPadding(
@@ -342,15 +342,15 @@ class _HomeCard extends StatelessWidget {
           ),
         ),
       ),
-    )
-        .animate()
-        .fade(duration: 380.ms, delay: (70 * index).ms)
-        .scale(
-          begin: const Offset(0.96, 0.96),
-          end: const Offset(1, 1),
-          duration: 380.ms,
-          delay: (70 * index).ms,
-          curve: Curves.easeOutCubic,
-        );
+        )
+            .animate()
+            .fade(duration: 220.ms, delay: (40 * index).ms)
+            .slideY(
+              begin: 0.04,
+              end: 0,
+              duration: 220.ms,
+              delay: (40 * index).ms,
+              curve: Curves.easeOutCubic,
+            );
   }
 }

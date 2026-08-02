@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
@@ -30,6 +32,18 @@ class NotificationHistoryController extends GetxController {
   /// Bumps when read-state changes so nested screens rebuild.
   final readStateVersion = 0.obs;
 
+  /// Precomputed unread counts — O(1) lookups in list tiles.
+  final unreadByApp = <String, int>{}.obs;
+  final unreadBySender = <String, int>{}.obs;
+
+  Timer? _searchDebounce;
+  Timer? _refreshDebounce;
+  StreamSubscription? _captureSub;
+  bool _refreshing = false;
+
+  static String _senderKey(String packageName, String senderName) =>
+      '$packageName\u0000$senderName';
+
   @override
   void onInit() {
     super.onInit();
@@ -38,22 +52,71 @@ class NotificationHistoryController extends GetxController {
     _initService();
   }
 
+  @override
+  void onClose() {
+    _searchDebounce?.cancel();
+    _refreshDebounce?.cancel();
+    _captureSub?.cancel();
+    super.onClose();
+  }
+
   void _loadFromHive() {
     _deduplicateHive();
     notifications.assignAll(box.values.toList().reversed);
     _updateUniqueApps();
+    _rebuildUnreadCaches();
     _applyFilters();
   }
 
-  /// Re-open box so BG-isolate writes (with avatar) become visible.
+  /// Soft reload from disk without closing the box (avoids main-isolate hitch).
   Future<void> refreshFromDisk() async {
+    if (_refreshing) return;
+    _refreshing = true;
     try {
-      final name = box.name;
-      if (box.isOpen) await box.close();
-      box = await Hive.openBox<NotificationModel>(name);
+      // Prefer a cheap in-memory sync; only reopen if lengths diverge badly.
+      final diskCount = box.length;
+      final memCount = notifications.length;
+      if ((diskCount - memCount).abs() > 2 || diskCount == 0) {
+        // Rare path: reopen once if BG writes aren't visible yet.
+        final name = box.name;
+        if (box.isOpen) await box.close();
+        box = await Hive.openBox<NotificationModel>(name);
+      }
       _loadFromHive();
     } catch (_) {
       // Keep existing in-memory list if reopen fails.
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  void _scheduleSoftRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
+      refreshFromDisk();
+    });
+  }
+
+  void _ingestCaptured(Map<dynamic, dynamic>? event) {
+    if (event == null) return;
+    try {
+      final map = Map<String, dynamic>.from(event);
+      final notif = NotificationModel.fromJson(map);
+
+      // Skip if we already have this id for the package.
+      final exists = notifications.any(
+        (n) => n.id == notif.id && n.packageName == notif.packageName,
+      );
+      if (exists) return;
+
+      notifications.insert(0, notif);
+      _updateUniqueApps();
+      _rebuildUnreadCaches();
+      _applyFilters();
+      // Avatar may arrive on disk later — soft refresh without closing every time.
+      _scheduleSoftRefresh();
+    } catch (_) {
+      _scheduleSoftRefresh();
     }
   }
 
@@ -84,10 +147,9 @@ class NotificationHistoryController extends GetxController {
       if (isServiceRunning.value) return;
       isServiceRunning.value = true;
 
-      FlutterBackgroundService().on('onNotificationCaptured').listen((event) async {
-        // BG isolate wrote Hive (with avatar). Refresh main isolate from disk.
-        await Future.delayed(const Duration(milliseconds: 150));
-        await refreshFromDisk();
+      _captureSub =
+          FlutterBackgroundService().on('onNotificationCaptured').listen((event) {
+        _ingestCaptured(event);
       });
 
       final isRunning = await FlutterBackgroundService().isRunning();
@@ -108,8 +170,34 @@ class NotificationHistoryController extends GetxController {
     uniqueApps.assignAll(['All', ...apps]);
   }
 
+  void _rebuildUnreadCaches() {
+    final byApp = <String, int>{};
+    final bySender = <String, int>{};
+    for (final n in notifications) {
+      if (n.isRead) continue;
+      byApp[n.packageName] = (byApp[n.packageName] ?? 0) + 1;
+      final key = _senderKey(n.packageName, n.senderName);
+      bySender[key] = (bySender[key] ?? 0) + 1;
+    }
+    unreadByApp.assignAll(byApp);
+    unreadBySender.assignAll(bySender);
+  }
+
+  /// Debounced search — avoids full filter on every keystroke.
   void updateSearch(String query) {
     searchQuery.value = query;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 220), _applyFilters);
+  }
+
+  /// Immediate clear (search close / reset) — no debounce lag.
+  void clearSearch() {
+    _searchDebounce?.cancel();
+    if (searchQuery.value.isEmpty) {
+      _applyFilters();
+      return;
+    }
+    searchQuery.value = '';
     _applyFilters();
   }
 
@@ -145,6 +233,7 @@ class NotificationHistoryController extends GetxController {
   }
 
   void resetFilters() {
+    _searchDebounce?.cancel();
     searchQuery.value = '';
     selectedApp.value = 'All';
     sortOrder.value = 'New First';
@@ -185,29 +274,31 @@ class NotificationHistoryController extends GetxController {
   }
 
   void _applyFilters() {
-    var result = notifications.toList();
+    final selected = selectedApp.value;
+    final unread = unreadOnly.value;
+    final query = searchQuery.value.toLowerCase();
+    final hasQuery = query.isNotEmpty;
+    final order = sortOrder.value;
 
-    if (selectedApp.value != 'All') {
-      result = result.where((e) => e.packageName == selectedApp.value).toList();
+    final result = <NotificationModel>[];
+    for (final e in notifications) {
+      if (selected != 'All' && e.packageName != selected) continue;
+      if (unread && e.isRead) continue;
+      if (!_inTimeRange(e)) continue;
+      if (hasQuery) {
+        final title = e.title.toLowerCase();
+        final text = e.text.toLowerCase();
+        final pkg = e.packageName.toLowerCase();
+        if (!title.contains(query) &&
+            !text.contains(query) &&
+            !pkg.contains(query)) {
+          continue;
+        }
+      }
+      result.add(e);
     }
 
-    if (unreadOnly.value) {
-      result = result.where((e) => !e.isRead).toList();
-    }
-
-    result = result.where(_inTimeRange).toList();
-
-    if (searchQuery.value.isNotEmpty) {
-      final query = searchQuery.value.toLowerCase();
-      result = result
-          .where((e) =>
-              e.title.toLowerCase().contains(query) ||
-              e.text.toLowerCase().contains(query) ||
-              e.packageName.toLowerCase().contains(query))
-          .toList();
-    }
-
-    switch (sortOrder.value) {
+    switch (order) {
       case 'New First':
         result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
         break;
@@ -215,10 +306,12 @@ class NotificationHistoryController extends GetxController {
         result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
         break;
       case 'A-Z':
-        result.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        result.sort(
+            (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
         break;
       case 'Z-A':
-        result.sort((a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
+        result.sort(
+            (a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
         break;
     }
 
@@ -247,21 +340,22 @@ class NotificationHistoryController extends GetxController {
 
   Map<String, List<NotificationModel>> getNotificationsBySender(
       String packageName) {
-    var appNotifs =
-        notifications.where((n) => n.packageName == packageName).toList();
+    final query = searchQuery.value.toLowerCase();
+    final hasQuery = query.isNotEmpty;
+    final unread = unreadOnly.value;
 
-    if (unreadOnly.value) {
-      appNotifs = appNotifs.where((n) => !n.isRead).toList();
-    }
-    appNotifs = appNotifs.where(_inTimeRange).toList();
-
-    if (searchQuery.value.isNotEmpty) {
-      final query = searchQuery.value.toLowerCase();
-      appNotifs = appNotifs
-          .where((n) =>
-              n.title.toLowerCase().contains(query) ||
-              n.text.toLowerCase().contains(query))
-          .toList();
+    final appNotifs = <NotificationModel>[];
+    for (final n in notifications) {
+      if (n.packageName != packageName) continue;
+      if (unread && n.isRead) continue;
+      if (!_inTimeRange(n)) continue;
+      if (hasQuery) {
+        if (!n.title.toLowerCase().contains(query) &&
+            !n.text.toLowerCase().contains(query)) {
+          continue;
+        }
+      }
+      appNotifs.add(n);
     }
 
     appNotifs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -283,30 +377,29 @@ class NotificationHistoryController extends GetxController {
 
   List<NotificationModel> conversationMessages(
       String packageName, String senderName) {
-    final list = notifications
-        .where((n) =>
-            n.packageName == packageName && n.senderName == senderName)
-        .toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final list = <NotificationModel>[];
+    for (final n in notifications) {
+      if (n.packageName == packageName && n.senderName == senderName) {
+        list.add(n);
+      }
+    }
+    list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return list;
   }
 
-  int unreadCountForApp(String packageName) {
-    return notifications
-        .where((n) => n.packageName == packageName && !n.isRead)
-        .length;
-  }
+  int unreadCountForApp(String packageName) =>
+      unreadByApp[packageName] ?? 0;
 
-  int unreadCountForSender(String packageName, String senderName) {
-    return notifications
-        .where((n) =>
-            n.packageName == packageName &&
-            n.senderName == senderName &&
-            !n.isRead)
-        .length;
-  }
+  int unreadCountForSender(String packageName, String senderName) =>
+      unreadBySender[_senderKey(packageName, senderName)] ?? 0;
 
-  int get totalUnread => notifications.where((n) => !n.isRead).length;
+  int get totalUnread {
+    var total = 0;
+    for (final v in unreadByApp.values) {
+      total += v;
+    }
+    return total;
+  }
 
   Future<void> markAllRead() async {
     var changed = false;
@@ -325,6 +418,7 @@ class NotificationHistoryController extends GetxController {
     }
     if (changed) {
       readStateVersion.value++;
+      _rebuildUnreadCaches();
       notifications.refresh();
       _applyFilters();
     }
@@ -355,6 +449,7 @@ class NotificationHistoryController extends GetxController {
 
     if (changed) {
       readStateVersion.value++;
+      _rebuildUnreadCaches();
       notifications.refresh();
       _applyFilters();
     }
@@ -377,6 +472,7 @@ class NotificationHistoryController extends GetxController {
       }
     }
     readStateVersion.value++;
+    _rebuildUnreadCaches();
     notifications.refresh();
     _applyFilters();
   }
@@ -433,6 +529,8 @@ class NotificationHistoryController extends GetxController {
     notifications.clear();
     filteredNotifications.clear();
     groupedNotifications.clear();
+    unreadByApp.clear();
+    unreadBySender.clear();
     _updateUniqueApps();
     resetFilters();
     readStateVersion.value++;

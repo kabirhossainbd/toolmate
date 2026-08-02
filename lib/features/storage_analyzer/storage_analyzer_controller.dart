@@ -137,11 +137,14 @@ class StorageAnalyzerController extends GetxController {
       if (!dir.existsSync()) return;
       await for (var entity in dir.list(recursive: false, followLinks: false)) {
         if (entity is File) {
-          scanStatus.value = 'Scanning: ${entity.path.split('/').last}';
+          // Avoid rebuilding UI on every file — update progress every 80 files.
+          if (scanProgress.value % 80 == 0) {
+            scanStatus.value = 'Scanning: ${entity.path.split('/').last}';
+          }
           scanProgress.value++;
           
           // Yield occasionally to keep UI responsive
-          if (scanProgress.value % 50 == 0) {
+          if (scanProgress.value % 80 == 0) {
             await Future.delayed(Duration.zero);
           }
           
@@ -204,11 +207,14 @@ class StorageAnalyzerController extends GetxController {
           Map<String, List<File>> hashGroups = {};
           for (var i = 0; i < candidates.length; i++) {
             File file = candidates[i];
-            scanStatus.value = 'Comparing: ${file.path.split('/').last}';
-            scanProgress.value = i + 1;
-            
-            // Critical yield to prevent UI freeze during hashing
-            await Future.delayed(Duration.zero);
+            if (i % 8 == 0) {
+              scanStatus.value = 'Comparing: ${file.path.split('/').last}';
+              scanProgress.value = i + 1;
+              // Critical yield to prevent UI freeze during hashing
+              await Future.delayed(Duration.zero);
+            } else {
+              scanProgress.value = i + 1;
+            }
             
             String hash = await _calculateHash(file);
             if (hash != '') {
@@ -297,11 +303,14 @@ class StorageAnalyzerController extends GetxController {
         
         for (var i = 0; i < allImages.length; i++) {
           AssetEntity image = allImages[i];
-          scanStatus.value = 'Analyzing: ${image.title ?? 'Image ${i + 1}'}';
-          scanProgress.value = i + 1;
-          
-          // Yield to keep UI smooth
-          await Future.delayed(Duration.zero);
+          if (i % 8 == 0) {
+            scanStatus.value = 'Analyzing: ${image.title ?? 'Image ${i + 1}'}';
+            scanProgress.value = i + 1;
+            // Yield to keep UI smooth
+            await Future.delayed(Duration.zero);
+          } else {
+            scanProgress.value = i + 1;
+          }
           
           File? file = await image.file;
           if (file != null) {
