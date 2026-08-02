@@ -418,7 +418,7 @@ class StorageAnalyzerController extends GetxController {
         scanPercent.value =
             25 + ((i + 1) / uniqueImages.length * 25).clamp(0, 25);
         if (i % 8 == 0) {
-          scanStatus.value = 'Resolving: ${image.title ?? 'Image ${i + 1}'}';
+          scanStatus.value = image.title ?? 'Image ${i + 1}';
           filesFound.value = i + 1;
           await Future.delayed(Duration.zero);
         }
