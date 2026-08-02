@@ -1,111 +1,102 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:get/get.dart';
 import 'package:hive/hive.dart';
+
 import '../../core/app_ui.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/features/feature_item.dart';
 import '../../core/style.dart';
-import 'home_controller.dart';
-import '../user_profile/user_profile_model.dart';
+import '../../routes/app_routes.dart';
 import '../notification_history/notification_model.dart';
+import '../user_profile/user_profile_model.dart';
+import 'home_controller.dart';
 
 class HomeScreen extends GetView<HomeController> {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final features = <FeatureAccent>[
-      FeatureAccent(
-        title: 'Storage Analyzer',
-        subtitle: 'Clean & free space',
-        icon: FontAwesomeIcons.chartPie,
-        color: AppUi.brandBlue,
-        onTap: controller.navigateToStorageAnalyzer,
-      ),
-      FeatureAccent(
-        title: 'Video Downloader',
-        subtitle: 'Videos & images from socials',
-        icon: FontAwesomeIcons.cloudArrowDown,
-        color: AppUi.brandPink,
-        onTap: controller.navigateToVideoDownloader,
-      ),
-      FeatureAccent(
-        title: 'Notifications',
-        subtitle: 'Never miss a chat',
-        icon: FontAwesomeIcons.solidBell,
-        color: AppUi.brandOrange,
-        onTap: controller.navigateToNotificationHistory,
-      ),
-      FeatureAccent(
-        title: 'Profile',
-        subtitle: 'Customize your app',
-        icon: FontAwesomeIcons.solidUser,
-        color: AppUi.brandPurple,
-        onTap: controller.navigateToUserProfile,
-      ),
-    ];
+    final scheme = Theme.of(context).colorScheme;
 
-    return AppUi.gradientScaffold(
-      context: context,
-      appBar: AppBar(
-        title: Text(
-          'Toolmate',
-          style: openSansExtraBold.copyWith(
-            fontSize: 26,
-            letterSpacing: 0.4,
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
-        )
-            .animate()
-            .fade(duration: 250.ms)
-            .slideY(begin: -0.12, end: 0, curve: Curves.easeOutCubic),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 14),
-            child: GestureDetector(
-              onTap: controller.navigateToUserProfile,
-              child: const _ProfileAvatar(),
-            ),
-          ),
-        ],
-      ),
+    return Scaffold(
+      backgroundColor: scheme.surface,
       body: SafeArea(
         child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
+          physics: const ClampingScrollPhysics(),
+          cacheExtent: 200,
           slivers: [
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                child: _HeroBanner(
-                  onProfileTap: controller.navigateToUserProfile,
-                )
-                    .animate()
-                    .fade(duration: 240.ms)
-                    .slideY(begin: 0.04, end: 0, curve: Curves.easeOutCubic),
+                padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'app_name'.tr,
+                            style: openSansExtraBold.copyWith(
+                              fontSize: 26,
+                              color: scheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'tagline'.tr,
+                            style: openSansRegular.copyWith(
+                              fontSize: 13,
+                              color: scheme.onSurface.withValues(alpha: 0.55),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Profile',
+                      onPressed: () => Get.toNamed(Routes.userProfile),
+                      icon: const _ProfileAvatar(),
+                    ),
+                  ],
+                ),
               ),
             ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
-              sliver: SliverGrid(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 14,
-                  mainAxisSpacing: 14,
-                  childAspectRatio: 0.92,
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final feature = features[index];
-                    return _HomeCard(
-                      feature: feature,
-                      index: index,
-                    );
-                  },
-                  childCount: features.length,
-                ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                child: const _WelcomeCard(),
               ),
             ),
+            for (final category in controller.categories) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                  child: Text(
+                    category.tr,
+                    style: openSansBold.copyWith(
+                      fontSize: 15,
+                      color: scheme.onSurface.withValues(alpha: 0.75),
+                    ),
+                  ),
+                ),
+              ),
+              ...controller.featuresFor(category).map(
+                    (f) => SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: _FeatureRow(
+                          feature: f,
+                          onTap: () => controller.openFeature(f),
+                        ),
+                      ),
+                    ),
+                  ),
+            ],
+            const SliverToBoxAdapter(child: SizedBox(height: 24)),
           ],
         ),
       ),
@@ -113,112 +104,105 @@ class HomeScreen extends GetView<HomeController> {
   }
 }
 
-class _HeroBanner extends StatelessWidget {
-  final VoidCallback onProfileTap;
-
-  const _HeroBanner({required this.onProfileTap});
+class _WelcomeCard extends StatelessWidget {
+  const _WelcomeCard();
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: AppUi.brandHero,
-        borderRadius: BorderRadius.circular(AppUi.radiusLg),
-        boxShadow: AppUi.softGlow(AppUi.brandDeep, opacity: 0.35),
+        borderRadius: BorderRadius.circular(18),
       ),
-      child: Stack(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Positioned(
-            right: -18,
-            top: -24,
-            child: Icon(
-              FontAwesomeIcons.screwdriverWrench,
-              size: 110,
-              color: Colors.white.withValues(alpha: 0.08),
+          Text(
+            'welcome_title'.tr,
+            style: openSansBold.copyWith(color: Colors.white, fontSize: 18),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'welcome_body'.tr,
+            style: openSansRegular.copyWith(
+              color: Colors.white.withValues(alpha: 0.88),
+              fontSize: 12.5,
+              height: 1.35,
             ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ],
+      ),
+    ).animate().fade(duration: 180.ms);
+  }
+}
+
+class _FeatureRow extends StatelessWidget {
+  final FeatureItem feature;
+  final VoidCallback onTap;
+
+  const _FeatureRow({required this.feature, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Material(
+      color: isDark ? const Color(0xFF161B22) : Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: scheme.outline.withValues(alpha: isDark ? 0.12 : 0.08),
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                width: 46,
+                height: 46,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(20),
+                  color: feature.color.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                child: Center(
+                  child: FaIcon(feature.icon, size: 18, color: feature.color),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.auto_awesome_rounded,
-                        size: 14, color: Colors.white),
-                    const SizedBox(width: 6),
                     Text(
-                      'Smart toolkit',
-                      style: openSansSemiBold.copyWith(
-                        color: Colors.white,
+                      feature.title.tr,
+                      style: openSansSemiBold.copyWith(fontSize: 15),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      feature.subtitle.tr,
+                      style: openSansRegular.copyWith(
                         fontSize: 12,
+                        color: scheme.onSurface.withValues(alpha: 0.55),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
-              Text(
-                'All your utilities\nin one place',
-                style: openSansExtraBold.copyWith(
-                  color: Colors.white,
-                  fontSize: 24,
-                  height: 1.2,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Clean storage, save videos, and keep notification history.',
-                style: openSansRegular.copyWith(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  fontSize: 13,
-                  height: 1.35,
-                ),
-              ),
-              const SizedBox(height: 16),
-              InkWell(
-                onTap: onProfileTap,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.25),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.person_rounded,
-                          color: Colors.white, size: 18),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Open profile',
-                        style: openSansSemiBold.copyWith(
-                          color: Colors.white,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      const Icon(Icons.arrow_forward_rounded,
-                          color: Colors.white, size: 16),
-                    ],
-                  ),
-                ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: scheme.onSurface.withValues(alpha: 0.3),
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -231,7 +215,7 @@ class _ProfileAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     UserProfileModel? profile;
     try {
-      final box = Hive.box<UserProfileModel>('user_profile');
+      final box = Hive.box<UserProfileModel>(AppConstants.boxUserProfile);
       if (box.isNotEmpty) profile = box.getAt(0);
     } catch (_) {}
 
@@ -239,118 +223,16 @@ class _ProfileAvatar extends StatelessWidget {
     final hasImage = imgPath != null && File(imgPath).existsSync();
     final name = profile?.name ?? '';
 
-    return Container(
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: AppUi.brandHero,
-        boxShadow: AppUi.softGlow(AppUi.brandBlue, opacity: 0.35),
-      ),
-      child: CircleAvatar(
-        radius: 18,
-        backgroundColor: AppUi.brandBlue,
-        backgroundImage: hasImage ? FileImage(File(imgPath)) : null,
-        child: !hasImage
-            ? Text(
-                safeInitial(name, 'U'),
-                style: openSansBold.copyWith(
-                  color: Colors.white,
-                  fontSize: 14,
-                ),
-              )
-            : null,
-      ),
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: AppUi.brandBlue,
+      backgroundImage: hasImage ? FileImage(File(imgPath)) : null,
+      child: !hasImage
+          ? Text(
+              safeInitial(name, 'U'),
+              style: openSansBold.copyWith(color: Colors.white, fontSize: 13),
+            )
+          : null,
     );
-  }
-}
-
-class _HomeCard extends StatelessWidget {
-  final FeatureAccent feature;
-  final int index;
-
-  const _HomeCard({
-    required this.feature,
-    required this.index,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: feature.onTap,
-        borderRadius: BorderRadius.circular(AppUi.radiusLg),
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppUi.radiusLg),
-            gradient: AppUi.accentGradient(feature.color),
-            boxShadow: AppUi.softGlow(feature.color),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: isDark ? 0.18 : 0.22),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.28),
-                    ),
-                  ),
-                  child: Center(
-                    child: FaIcon(feature.icon, size: 22, color: Colors.white),
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  feature.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: openSansBold.copyWith(
-                    color: Colors.white,
-                    fontSize: 15,
-                    height: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  feature.subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: openSansRegular.copyWith(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Icon(
-                    Icons.arrow_outward_rounded,
-                    color: Colors.white.withValues(alpha: 0.9),
-                    size: 18,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-        )
-            .animate()
-            .fade(duration: 220.ms, delay: (40 * index).ms)
-            .slideY(
-              begin: 0.04,
-              end: 0,
-              duration: 220.ms,
-              delay: (40 * index).ms,
-              curve: Curves.easeOutCubic,
-            );
   }
 }

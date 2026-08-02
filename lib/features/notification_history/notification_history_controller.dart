@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
+import 'package:notification_listener_service/notification_event.dart';
 import 'package:notification_listener_service/notification_listener_service.dart';
 import 'notification_model.dart';
 import 'package:share_plus/share_plus.dart';
@@ -38,8 +40,12 @@ class NotificationHistoryController extends GetxController {
 
   Timer? _searchDebounce;
   Timer? _refreshDebounce;
+  Timer? _periodicSync;
   StreamSubscription? _captureSub;
+  StreamSubscription? _foregroundSub;
   bool _refreshing = false;
+  final Set<String> _seenIds = {};
+  final Map<String, int> _recentFingerprints = {};
 
   static String _senderKey(String packageName, String senderName) =>
       '$packageName\u0000$senderName';
@@ -50,39 +56,54 @@ class NotificationHistoryController extends GetxController {
     box = Hive.box<NotificationModel>('notifications');
     _loadFromHive();
     _initService();
+    // Hive BG isolate writes aren't visible until reopen.
+    _periodicSync = Timer.periodic(
+      const Duration(seconds: 8),
+      (_) => refreshFromDisk(forceReopen: true),
+    );
   }
 
   @override
   void onClose() {
     _searchDebounce?.cancel();
     _refreshDebounce?.cancel();
+    _periodicSync?.cancel();
     _captureSub?.cancel();
+    _foregroundSub?.cancel();
     super.onClose();
   }
 
   void _loadFromHive() {
     _deduplicateHive();
-    notifications.assignAll(box.values.toList().reversed);
+    final list = box.values.toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    notifications.assignAll(list);
+    _seenIds
+      ..clear()
+      ..addAll(list.map((e) => e.id));
     _updateUniqueApps();
     _rebuildUnreadCaches();
     _applyFilters();
   }
 
-  /// Soft reload from disk without closing the box (avoids main-isolate hitch).
-  Future<void> refreshFromDisk() async {
+  /// Re-open box so BG-isolate Hive writes become visible to the UI isolate.
+  Future<void> refreshFromDisk({bool forceReopen = false}) async {
     if (_refreshing) return;
     _refreshing = true;
     try {
-      // Prefer a cheap in-memory sync; only reopen if lengths diverge badly.
-      final diskCount = box.length;
-      final memCount = notifications.length;
-      if ((diskCount - memCount).abs() > 2 || diskCount == 0) {
-        // Rare path: reopen once if BG writes aren't visible yet.
-        final name = box.name;
+      final name = box.name;
+      final before = box.isOpen ? box.length : -1;
+      if (forceReopen || !box.isOpen) {
+        if (box.isOpen) await box.close();
+        box = await Hive.openBox<NotificationModel>(name);
+      } else if ((box.length - notifications.length).abs() > 0) {
         if (box.isOpen) await box.close();
         box = await Hive.openBox<NotificationModel>(name);
       }
-      _loadFromHive();
+      // Only rebuild UI if something changed.
+      if (forceReopen || box.length != before || box.length != notifications.length) {
+        _loadFromHive();
+      }
     } catch (_) {
       // Keep existing in-memory list if reopen fails.
     } finally {
@@ -92,9 +113,22 @@ class NotificationHistoryController extends GetxController {
 
   void _scheduleSoftRefresh() {
     _refreshDebounce?.cancel();
-    _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
-      refreshFromDisk();
+    _refreshDebounce = Timer(const Duration(milliseconds: 500), () {
+      refreshFromDisk(forceReopen: true);
     });
+  }
+
+  bool _isRecentDuplicate(String packageName, String title, String text) {
+    final fp = '$packageName|$title|$text';
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final last = _recentFingerprints[fp];
+    if (last != null && now - last < 2500) return true;
+    _recentFingerprints[fp] = now;
+    if (_recentFingerprints.length > 300) {
+      final cutoff = now - 60000;
+      _recentFingerprints.removeWhere((_, ts) => ts < cutoff);
+    }
+    return false;
   }
 
   void _ingestCaptured(Map<dynamic, dynamic>? event) {
@@ -103,33 +137,79 @@ class NotificationHistoryController extends GetxController {
       final map = Map<String, dynamic>.from(event);
       final notif = NotificationModel.fromJson(map);
 
-      // Skip if we already have this id for the package.
-      final exists = notifications.any(
-        (n) => n.id == notif.id && n.packageName == notif.packageName,
-      );
-      if (exists) return;
+      if (notif.packageName.isEmpty) return;
+      if (_seenIds.contains(notif.id)) return;
+      if (_isRecentDuplicate(notif.packageName, notif.title, notif.text)) {
+        return;
+      }
 
+      _seenIds.add(notif.id);
       notifications.insert(0, notif);
       _updateUniqueApps();
       _rebuildUnreadCaches();
       _applyFilters();
-      // Avatar may arrive on disk later — soft refresh without closing every time.
       _scheduleSoftRefresh();
     } catch (_) {
       _scheduleSoftRefresh();
     }
   }
 
+  /// Foreground backup listener — catches events even if BG invoke is delayed.
+  Future<void> _persistForegroundEvent(ServiceNotificationEvent event) async {
+    try {
+      if (event.hasRemoved == true) return;
+      final packageName = event.packageName ?? '';
+      if (packageName.isEmpty) return;
+
+      final title = (event.title ?? '').trim();
+      final content = (event.content ?? '').trim();
+      if (title.isEmpty && content.isEmpty) return;
+
+      final titleSafe = title.isNotEmpty ? title : 'No title';
+      final textSafe = content.isNotEmpty ? content : 'No content';
+      if (_isRecentDuplicate(packageName, titleSafe, textSafe)) return;
+
+      final now = DateTime.now();
+      final androidId = event.id?.toString() ?? '0';
+      final uniqueId =
+          '${packageName}_${androidId}_${Object.hash(titleSafe, textSafe)}';
+      if (_seenIds.contains(uniqueId)) return;
+
+      Uint8List? icon = event.largeIcon;
+      if (icon != null && icon.length > 100 * 1024) icon = null;
+
+      final notif = NotificationModel(
+        id: uniqueId,
+        packageName: packageName,
+        title: titleSafe,
+        text: textSafe,
+        timestamp: now,
+        senderIcon: icon,
+      );
+
+      await box.add(notif);
+      _seenIds.add(uniqueId);
+      notifications.insert(0, notif);
+      _updateUniqueApps();
+      _rebuildUnreadCaches();
+      _applyFilters();
+    } catch (_) {
+      // Ignore malformed events.
+    }
+  }
+
   void _deduplicateHive() {
+    // Only remove exact same unique id (not Android notification id reuse).
     final seen = <String>{};
     final keysToDelete = <dynamic>[];
 
-    final allKeys = box.keys.toList().reversed.toList();
-    for (final key in allKeys) {
+    for (final key in box.keys.toList()) {
       final notif = box.get(key);
       if (notif == null) continue;
-      if (notif.id.isEmpty || seen.add(notif.id)) continue;
-      keysToDelete.add(key);
+      if (notif.id.isEmpty) continue;
+      if (!seen.add(notif.id)) {
+        keysToDelete.add(key);
+      }
     }
 
     for (final key in keysToDelete) {
@@ -143,25 +223,49 @@ class NotificationHistoryController extends GetxController {
       status = await NotificationListenerService.requestPermission();
     }
 
-    if (status) {
-      if (isServiceRunning.value) return;
-      isServiceRunning.value = true;
-
-      _captureSub =
-          FlutterBackgroundService().on('onNotificationCaptured').listen((event) {
-        _ingestCaptured(event);
-      });
-
-      final isRunning = await FlutterBackgroundService().isRunning();
-      if (!isRunning) {
-        FlutterBackgroundService().startService();
-      }
-    } else {
+    if (!status) {
       Get.snackbar(
         'Permission Denied',
         'Notification access is required to capture notifications.',
       );
+      return;
     }
+
+    if (isServiceRunning.value) return;
+    isServiceRunning.value = true;
+
+    _captureSub =
+        FlutterBackgroundService().on('onNotificationCaptured').listen((event) {
+      _ingestCaptured(event);
+    });
+
+    // Dual-listen in UI isolate so we don't miss events when invoke is delayed.
+    try {
+      _foregroundSub = NotificationListenerService.notificationsStream.listen(
+        (event) {
+          unawaited(_persistForegroundEvent(event));
+        },
+        onError: (_) {},
+        cancelOnError: false,
+      );
+    } catch (_) {
+      // Android-only API.
+    }
+
+    final isRunning = await FlutterBackgroundService().isRunning();
+    if (!isRunning) {
+      await FlutterBackgroundService().startService();
+    }
+
+    // Pull anything currently in the shade.
+    try {
+      final active = await NotificationListenerService.getActiveNotifications();
+      for (final event in active) {
+        await _persistForegroundEvent(event);
+      }
+    } catch (_) {}
+
+    await refreshFromDisk(forceReopen: true);
   }
 
   void _updateUniqueApps() {

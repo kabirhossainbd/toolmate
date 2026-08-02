@@ -39,6 +39,9 @@ class StorageExplorerScreen extends GetView<StorageAnalyzerController> {
                 }
 
                 return ListView.separated(
+                  physics: const ClampingScrollPhysics(),
+                  cacheExtent: 250,
+                  addAutomaticKeepAlives: false,
                   itemCount: controller.currentFolderContent.length,
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   separatorBuilder: (context, index) => const Divider(height: 1, indent: 72),

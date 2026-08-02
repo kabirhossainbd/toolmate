@@ -31,6 +31,9 @@ class LargeFilesScreen extends GetView<StorageAnalyzerController> {
           }
 
           return ListView.builder(
+            physics: const ClampingScrollPhysics(),
+            cacheExtent: 250,
+            addAutomaticKeepAlives: false,
             itemCount: controller.largeFiles.length,
             padding: const EdgeInsets.all(16),
             itemBuilder: (context, index) {
@@ -122,18 +125,14 @@ class LargeFilesScreen extends GetView<StorageAnalyzerController> {
     String size = (file.lengthSync() / (1024 * 1024)).toStringAsFixed(1);
     
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+        ),
       ),
       child: Row(
         children: [

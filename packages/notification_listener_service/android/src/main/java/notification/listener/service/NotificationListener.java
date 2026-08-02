@@ -65,16 +65,34 @@ public class NotificationListener extends NotificationListenerService {
 
     @RequiresApi(api = VERSION_CODES.KITKAT)
     private void handleNotification(StatusBarNotification notification, boolean isRemoved) {
+        // Removals are not useful for history — skip early.
+        if (isRemoved) {
+            return;
+        }
         try {
             String packageName = notification.getPackageName();
-            Bundle extras = notification.getNotification().extras;
-            boolean isOngoing = (notification.getNotification().flags & Notification.FLAG_ONGOING_EVENT) != 0;
+            if (packageName == null || packageName.isEmpty()) {
+                return;
+            }
+            // Ignore our own foreground/service notifications.
+            if (packageName.equals(getPackageName())) {
+                return;
+            }
+
+            Notification notif = notification.getNotification();
+            // Group summaries often replace useful child posts — skip them.
+            if ((notif.flags & Notification.FLAG_GROUP_SUMMARY) != 0) {
+                return;
+            }
+
+            Bundle extras = notif.extras;
+            boolean isOngoing = (notif.flags & Notification.FLAG_ONGOING_EVENT) != 0;
             byte[] appIcon = getAppIcon(packageName);
             byte[] largeIcon = null;
-            Action action = NotificationUtils.getQuickReplyAction(notification.getNotification(), packageName);
+            Action action = NotificationUtils.getQuickReplyAction(notif, packageName);
 
             if (Build.VERSION.SDK_INT >= VERSION_CODES.M) {
-                largeIcon = getNotificationLargeIcon(getApplicationContext(), notification.getNotification());
+                largeIcon = getNotificationLargeIcon(getApplicationContext(), notif);
             }
 
             Intent intent = new Intent(NotificationConstants.INTENT);
@@ -95,13 +113,19 @@ public class NotificationListener extends NotificationListenerService {
                 intent.putExtra(NotificationConstants.NOTIFICATIONS_LARGE_ICON, largeIcon);
             }
 
+            String title = null;
+            String content = null;
             if (extras != null) {
-                CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
-                CharSequence text = extras.getCharSequence(Notification.EXTRA_TEXT);
+                title = firstNonEmpty(
+                        charSeq(extras.getCharSequence(Notification.EXTRA_TITLE)),
+                        charSeq(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)),
+                        charSeq(extras.getCharSequence(Notification.EXTRA_TITLE_BIG))
+                );
+                content = extractBestContent(extras);
 
-                intent.putExtra(NotificationConstants.NOTIFICATION_TITLE, title == null ? null : title.toString());
-                intent.putExtra(NotificationConstants.NOTIFICATION_CONTENT, text == null ? null : text.toString());
-                intent.putExtra(NotificationConstants.IS_REMOVED, isRemoved);
+                intent.putExtra(NotificationConstants.NOTIFICATION_TITLE, title);
+                intent.putExtra(NotificationConstants.NOTIFICATION_CONTENT, content);
+                intent.putExtra(NotificationConstants.IS_REMOVED, false);
 
                 boolean hasPicture = extras.containsKey(Notification.EXTRA_PICTURE);
                 intent.putExtra(NotificationConstants.HAVE_EXTRA_PICTURE, hasPicture);
@@ -123,12 +147,82 @@ public class NotificationListener extends NotificationListenerService {
                     }
                 }
             }
+
+            // Nothing useful to store
+            if ((title == null || title.isEmpty()) && (content == null || content.isEmpty())) {
+                return;
+            }
+
             sendBroadcast(intent);
         } catch (Exception e) {
             // Never let a single malformed notification (e.g. TikTok media) crash the process
             Log.e(TAG, "Failed to handle notification from " +
                     (notification != null ? notification.getPackageName() : "unknown"), e);
         }
+    }
+
+    private static String charSeq(CharSequence cs) {
+        return cs == null ? null : cs.toString().trim();
+    }
+
+    private static String firstNonEmpty(String... values) {
+        if (values == null) return null;
+        for (String v : values) {
+            if (v != null && !v.isEmpty()) return v;
+        }
+        return null;
+    }
+
+    /**
+     * Messaging apps often put the real body in BIG_TEXT / TEXT_LINES / MessagingStyle,
+     * not EXTRA_TEXT — missing those causes "lost" notifications.
+     */
+    @RequiresApi(api = VERSION_CODES.KITKAT)
+    private static String extractBestContent(Bundle extras) {
+        String text = charSeq(extras.getCharSequence(Notification.EXTRA_TEXT));
+        String bigText = charSeq(extras.getCharSequence(Notification.EXTRA_BIG_TEXT));
+        String infoText = charSeq(extras.getCharSequence(Notification.EXTRA_INFO_TEXT));
+        String subText = charSeq(extras.getCharSequence(Notification.EXTRA_SUB_TEXT));
+        String summary = charSeq(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT));
+
+        // Prefer the longest meaningful body (BIG_TEXT usually has full message).
+        String best = firstNonEmpty(bigText, text, infoText, subText, summary);
+
+        CharSequence[] lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
+        if (lines != null && lines.length > 0) {
+            // Last line is usually the newest message in stacked notifications.
+            String lastLine = charSeq(lines[lines.length - 1]);
+            if (lastLine != null && !lastLine.isEmpty()) {
+                if (best == null || lastLine.length() >= best.length()) {
+                    best = lastLine;
+                }
+            }
+        }
+
+        // MessagingStyle: take the last message text when available.
+        try {
+            Object[] messages = null;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                Object raw = extras.get(Notification.EXTRA_MESSAGES);
+                if (raw instanceof Object[]) {
+                    messages = (Object[]) raw;
+                }
+            }
+            if (messages != null && messages.length > 0) {
+                Object last = messages[messages.length - 1];
+                if (last instanceof Bundle) {
+                    CharSequence msgText = ((Bundle) last).getCharSequence("text");
+                    String msg = charSeq(msgText);
+                    if (msg != null && !msg.isEmpty()) {
+                        best = msg;
+                    }
+                }
+            }
+        } catch (Throwable e) {
+            Log.d(TAG, "EXTRA_MESSAGES parse skipped: " + e.getMessage());
+        }
+
+        return best;
     }
 
 

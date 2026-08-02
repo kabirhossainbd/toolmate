@@ -81,6 +81,9 @@ class DuplicateImagesScreen extends GetView<StorageAnalyzerController> {
         }
 
         return ListView.builder(
+          physics: const ClampingScrollPhysics(),
+          cacheExtent: 200,
+          addAutomaticKeepAlives: false,
           itemCount: controller.duplicateImages.length,
           padding: const EdgeInsets.all(16),
           itemBuilder: (context, index) {
@@ -97,14 +100,10 @@ class DuplicateImagesScreen extends GetView<StorageAnalyzerController> {
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,89 +134,53 @@ class DuplicateImagesScreen extends GetView<StorageAnalyzerController> {
             ),
           ),
           const Divider(height: 1),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 0.85,
+          SizedBox(
+            height: 108,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const ClampingScrollPhysics(),
+              padding: const EdgeInsets.all(12),
+              itemCount: group.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final asset = group[index];
+                return SizedBox(
+                  width: 88,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        AssetEntityImage(
+                          asset,
+                          isOriginal: false,
+                          thumbnailSize: const ThumbnailSize(120, 120),
+                          fit: BoxFit.cover,
+                        ),
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: GestureDetector(
+                            onTap: () => _confirmDeleteAsset(asset, () {
+                              group.removeAt(index);
+                              if (group.length < 2) {
+                                controller.duplicateImages.removeAt(groupIndex);
+                              }
+                              controller.duplicateImages.refresh();
+                            }),
+                            child: const CircleAvatar(
+                              radius: 11,
+                              backgroundColor: Colors.redAccent,
+                              child: Icon(Icons.close, size: 12, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
-            itemCount: group.length,
-            itemBuilder: (context, index) {
-              final asset = group[index];
-              return Container(
-                decoration: BoxDecoration(
-                  color: Colors.black12,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.grey.withValues(alpha: 0.1)),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    AssetEntityImage(
-                      asset,
-                      isOriginal: false,
-                      thumbnailSize: const ThumbnailSize(300, 300),
-                      fit: BoxFit.cover,
-                    ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: GestureDetector(
-                        onTap: () => _confirmDeleteAsset(asset, () {
-                          group.removeAt(index);
-                          if (group.length < 2) {
-                            controller.duplicateImages.removeAt(groupIndex);
-                          }
-                          controller.duplicateImages.refresh();
-                        }),
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withValues(alpha: 0.9),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.2),
-                                blurRadius: 4,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.white),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: 0.7),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                        child: Text(
-                          '${asset.width} x ${asset.height}',
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w500),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
           ),
         ],
       ),

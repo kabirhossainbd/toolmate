@@ -1,20 +1,15 @@
 import 'package:get/get.dart';
-import '../../routes/app_routes.dart';
+
+import '../../core/features/feature_catalog.dart';
+import '../../core/features/feature_item.dart';
 
 class HomeController extends GetxController {
-  void navigateToStorageAnalyzer() {
-    Get.toNamed(Routes.storageAnalyzer);
-  }
+  List<String> get categories => FeatureCatalog.categories;
 
-  void navigateToVideoDownloader() {
-    Get.toNamed(Routes.videoDownloader);
-  }
+  List<FeatureItem> featuresFor(String category) =>
+      FeatureCatalog.byCategory(category);
 
-  void navigateToNotificationHistory() {
-    Get.toNamed(Routes.notificationHistory);
-  }
-
-  void navigateToUserProfile() {
-    Get.toNamed(Routes.userProfile);
+  void openFeature(FeatureItem feature) {
+    Get.toNamed(feature.route);
   }
 }

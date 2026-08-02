@@ -31,6 +31,9 @@ class DuplicateFilesScreen extends GetView<StorageAnalyzerController> {
           }
 
           return ListView.builder(
+            physics: const ClampingScrollPhysics(),
+            cacheExtent: 200,
+            addAutomaticKeepAlives: false,
             itemCount: controller.duplicateFilesList.length,
             padding: const EdgeInsets.all(16),
             itemBuilder: (context, index) {
@@ -125,14 +128,10 @@ class DuplicateFilesScreen extends GetView<StorageAnalyzerController> {
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

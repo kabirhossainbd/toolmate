@@ -8,6 +8,7 @@ import 'package:installed_apps/installed_apps.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/app_ui.dart';
 import '../../core/style.dart';
+import '../../core/widgets/smooth_scroll.dart';
 import '../../routes/app_routes.dart';
 import 'notification_history_controller.dart';
 import 'notification_model.dart';
@@ -123,7 +124,8 @@ class NotificationHistoryScreen extends StatefulWidget {
   State<NotificationHistoryScreen> createState() => _NotificationHistoryScreenState();
 }
 
-class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
+class _NotificationHistoryScreenState extends State<NotificationHistoryScreen>
+    with WidgetsBindingObserver {
   late final NotificationHistoryController controller;
   bool _showSearch = false;
   final _searchController = TextEditingController();
@@ -131,13 +133,26 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     controller = Get.isRegistered<NotificationHistoryController>()
         ? Get.find<NotificationHistoryController>()
-        : Get.put(NotificationHistoryController());
+        : Get.put(NotificationHistoryController(), permanent: true);
+    // Sync BG isolate writes when opening the screen.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.refreshFromDisk(forceReopen: true);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      controller.refreshFromDisk(forceReopen: true);
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
   }
@@ -672,9 +687,9 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
       final appKeys = controller.groupedNotifications.keys.toList();
 
       return ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(
-          parent: BouncingScrollPhysics(),
-        ),
+        physics: SmoothScroll.physics,
+        cacheExtent: SmoothScroll.cacheExtent,
+        addAutomaticKeepAlives: false,
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 16),
         itemCount: appKeys.length,
         itemBuilder: (context, index) {
@@ -685,153 +700,132 @@ class _NotificationHistoryScreenState extends State<NotificationHistoryScreen> {
           final totalCount = appNotifs.length;
           final hasUnread = unreadCount > 0;
 
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Material(
-              color: _NotifUi.card(context),
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-                side: BorderSide(color: _NotifUi.border(context, unread: hasUnread)),
-              ),
-              child: InkWell(
-                onTap: () {
-                  Get.toNamed(
-                    Routes.notificationApp,
-                    arguments: {
-                      'packageName': packageName,
-                      'appName': _getAppName(packageName),
-                      'appColor': _getAppColor(packageName),
-                    },
-                  );
+          return SmoothListTile(
+            borderColor: _NotifUi.border(context, unread: hasUnread),
+            onTap: () {
+              Get.toNamed(
+                Routes.notificationApp,
+                arguments: {
+                  'packageName': packageName,
+                  'appName': _getAppName(packageName),
+                  'appColor': _getAppColor(packageName),
                 },
-                borderRadius: BorderRadius.circular(14),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  child: Row(
-                    children: [
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          _AppIcon(
-                            packageName: packageName,
-                            size: 42,
-                            fallbackLabel:
-                                safeInitial(_getAppName(packageName)),
-                            fallbackColor: _getAppColor(packageName),
+              );
+            },
+            child: Row(
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    _AppIcon(
+                      packageName: packageName,
+                      size: 42,
+                      fallbackLabel: safeInitial(_getAppName(packageName)),
+                      fallbackColor: _getAppColor(packageName),
+                    ),
+                    if (hasUnread)
+                      Positioned(
+                        right: -3,
+                        top: -3,
+                        child: Container(
+                          constraints: const BoxConstraints(
+                              minWidth: 16, minHeight: 16),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: BoxDecoration(
+                            color: _NotifUi.unread,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: _NotifUi.card(context),
+                              width: 1.5,
+                            ),
                           ),
-                          if (hasUnread)
-                            Positioned(
-                              right: -3,
-                              top: -3,
-                              child: Container(
-                                constraints: const BoxConstraints(
-                                    minWidth: 16, minHeight: 16),
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 4),
-                                decoration: BoxDecoration(
-                                  color: _NotifUi.unread,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: _NotifUi.card(context),
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Text(
-                                  unreadCount > 99
-                                      ? '99+'
-                                      : unreadCount.toString(),
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w700,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ),
+                          child: Text(
+                            unreadCount > 99
+                                ? '99+'
+                                : unreadCount.toString(),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              height: 1.4,
                             ),
-                        ],
+                          ),
+                        ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    _getAppName(packageName),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontWeight: hasUnread
-                                          ? FontWeight.w700
-                                          : FontWeight.w600,
-                                      fontSize: 13,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  DateFormat('hh:mm a')
-                                      .format(latestNotif.timestamp),
-                                  style: TextStyle(
-                                    fontSize: 10.5,
-                                    fontWeight: hasUnread
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                    color: hasUnread
-                                        ? _NotifUi.accent
-                                        : _NotifUi.muted(context, 0.45),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              latestNotif.title.isNotEmpty
-                                  ? '${latestNotif.title}: ${latestNotif.text}'
-                                  : latestNotif.text,
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _getAppName(packageName),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 11.5,
-                                height: 1.3,
                                 fontWeight: hasUnread
-                                    ? FontWeight.w500
-                                    : FontWeight.w400,
-                                color: _NotifUi.muted(
-                                    context, hasUnread ? 0.72 : 0.55),
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
+                                fontSize: 13,
                               ),
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              hasUnread
-                                  ? '$unreadCount unread · $totalCount'
-                                  : '$totalCount messages',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: _NotifUi.muted(context, 0.4),
-                              ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            DateFormat('hh:mm a')
+                                .format(latestNotif.timestamp),
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: hasUnread
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                              color: hasUnread
+                                  ? _NotifUi.accent
+                                  : _NotifUi.muted(context, 0.45),
                             ),
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        latestNotif.title.isNotEmpty
+                            ? '${latestNotif.title}: ${latestNotif.text}'
+                            : latestNotif.text,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.3,
+                          fontWeight:
+                              hasUnread ? FontWeight.w500 : FontWeight.w400,
+                          color: _NotifUi.muted(
+                              context, hasUnread ? 0.72 : 0.55),
                         ),
                       ),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        size: 18,
-                        color: _NotifUi.muted(context, 0.3),
+                      const SizedBox(height: 3),
+                      Text(
+                        hasUnread
+                            ? '$unreadCount unread · $totalCount'
+                            : '$totalCount messages',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: _NotifUi.muted(context, 0.4),
+                        ),
                       ),
                     ],
                   ),
                 ),
-              ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: _NotifUi.muted(context, 0.3),
+                ),
+              ],
             ),
           );
         },
@@ -1124,9 +1118,9 @@ class _AppNotificationsScreenState extends State<AppNotificationsScreen> {
                 }
 
                 return ListView.builder(
-                  physics: const AlwaysScrollableScrollPhysics(
-                    parent: BouncingScrollPhysics(),
-                  ),
+                  physics: SmoothScroll.physics,
+                  cacheExtent: SmoothScroll.cacheExtent,
+                  addAutomaticKeepAlives: false,
                   padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
                   itemCount: senders.length,
                   itemBuilder: (context, index) {
@@ -1408,6 +1402,9 @@ class _IconCircle extends StatelessWidget {
         height: size,
         fit: BoxFit.cover,
         gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
+        cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+        cacheHeight: (size * MediaQuery.devicePixelRatioOf(context)).round(),
       ),
     );
   }
@@ -1470,6 +1467,9 @@ class _SenderIcon extends StatelessWidget {
           height: size,
           fit: BoxFit.cover,
           gaplessPlayback: true,
+          filterQuality: FilterQuality.low,
+          cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+          cacheHeight: (size * MediaQuery.devicePixelRatioOf(context)).round(),
           errorBuilder: (context, error, stack) => appIcon,
         ),
       );
@@ -1624,63 +1624,63 @@ class _SenderConversationScreenState extends State<SenderConversationScreen> {
           );
         }
 
-        final dateGroups = <String, List<NotificationModel>>{};
+        // Flatten date headers + messages so ListView can virtualize every row.
+        final rows = <Object>[];
+        String? lastDate;
         for (final m in sortedMessages) {
           final dateStr = DateFormat('EEE, MMM dd').format(m.timestamp);
-          dateGroups.putIfAbsent(dateStr, () => []).add(m);
+          if (dateStr != lastDate) {
+            rows.add(dateStr);
+            lastDate = dateStr;
+          }
+          rows.add(m);
         }
-
-        final dates = dateGroups.keys.toList();
 
         return ListView.builder(
           controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(
-            parent: BouncingScrollPhysics(),
-          ),
+          physics: SmoothScroll.physics,
+          cacheExtent: SmoothScroll.cacheExtent,
+          addAutomaticKeepAlives: false,
           padding: const EdgeInsets.fromLTRB(10, 6, 10, 20),
-          itemCount: dates.length,
+          itemCount: rows.length,
           itemBuilder: (context, index) {
-            final date = dates[index];
-            final dayMessages = dateGroups[date]!;
+            final row = rows[index];
+            if (row is String) {
+              return Center(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.06)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    row,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: _NotifUi.muted(context, 0.5),
+                    ),
+                  ),
+                ),
+              );
+            }
 
-            return Column(
-              children: [
-                Center(
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 10),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.06)
-                          : Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      date,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: _NotifUi.muted(context, 0.5),
-                      ),
-                    ),
-                  ),
-                ),
-                ...dayMessages.map(
-                  (m) => _ChatBubble(
-                    message: m,
-                    appColor: widget.appColor,
-                    appName: widget.appName,
-                    packageName: widget.packageName,
-                    onTap: () => _openMessageDetail(context, m),
-                    onLongPress: () => _showCopyShareSheet(
-                      context,
-                      message: m,
-                      appName: widget.appName,
-                    ),
-                  ),
-                ),
-              ],
+            final m = row as NotificationModel;
+            return _ChatBubble(
+              message: m,
+              appColor: widget.appColor,
+              appName: widget.appName,
+              packageName: widget.packageName,
+              onTap: () => _openMessageDetail(context, m),
+              onLongPress: () => _showCopyShareSheet(
+                context,
+                message: m,
+                appName: widget.appName,
+              ),
             );
           },
         );
@@ -1884,24 +1884,18 @@ class _ChatBubble extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (message.senderIcon != null)
-                  _SenderIcon(
-                    senderIcon: message.senderIcon!,
-                    size: 34,
-                    appIcon: _AppIcon(
-                      packageName: packageName,
-                      size: 34,
-                      fallbackLabel: safeInitial(message.senderName),
-                      fallbackColor: appColor,
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: appColor.withValues(alpha: 0.18),
+                  child: Text(
+                    safeInitial(message.senderName),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: appColor,
                     ),
-                  )
-                else
-                  _AppIcon(
-                    packageName: packageName,
-                    size: 34,
-                    fallbackLabel: safeInitial(message.senderName),
-                    fallbackColor: appColor,
                   ),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(

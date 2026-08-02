@@ -357,6 +357,9 @@ class _InsertLinkTab extends StatelessWidget {
                                     height: 180,
                                     width: double.infinity,
                                     fit: BoxFit.cover,
+                                    cacheWidth: 720,
+                                    cacheHeight: 360,
+                                    filterQuality: FilterQuality.low,
                                     errorBuilder: (ctx, err, _) =>
                                         _videoPlaceholder(isImage: isImage),
                                   )
@@ -620,6 +623,9 @@ class _MediaPickerStrip extends StatelessWidget {
                         ? Image.network(
                             item.thumbnailUrl,
                             fit: BoxFit.cover,
+                            cacheWidth: 160,
+                            cacheHeight: 160,
+                            filterQuality: FilterQuality.low,
                             errorBuilder: (_, _, _) => ColoredBox(
                               color: isDark
                                   ? Colors.grey.shade800
@@ -744,6 +750,9 @@ class _DownloadedTab extends StatelessWidget {
           ),
           Expanded(
             child: ListView.builder(
+              physics: const ClampingScrollPhysics(),
+              cacheExtent: 250,
+              addAutomaticKeepAlives: false,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: controller.downloadHistory.length,
               itemBuilder: (context, index) {
@@ -883,17 +892,11 @@ class _VideoListItem extends StatelessWidget {
         : video.title;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cardBorder),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
-              blurRadius: 6,
-              offset: const Offset(0, 2)),
-        ],
       ),
       child: Material(
         color: Colors.transparent,
@@ -1034,6 +1037,9 @@ class _VideoListItem extends StatelessWidget {
         width: 72,
         height: 52,
         fit: BoxFit.cover,
+        cacheWidth: 144,
+        cacheHeight: 104,
+        filterQuality: FilterQuality.low,
         errorBuilder: (ctx, err, _) => _thumbPlaceholder(),
       );
     }
@@ -1043,6 +1049,9 @@ class _VideoListItem extends StatelessWidget {
         width: 72,
         height: 52,
         fit: BoxFit.cover,
+        cacheWidth: 144,
+        cacheHeight: 104,
+        filterQuality: FilterQuality.low,
         errorBuilder: (ctx, err, _) => _thumbPlaceholder(),
       );
     }

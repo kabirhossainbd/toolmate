@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/app_ui.dart';
+import '../../core/settings/app_settings_controller.dart';
 import '../../core/style.dart';
 import 'user_profile_controller.dart';
 
@@ -31,7 +32,7 @@ class UserProfileScreen extends GetView<UserProfileController> {
                 onPressed: () => Get.back(),
               ),
               title: Text(
-                'My Profile',
+                'my_profile'.tr,
                 style: openSansBold.copyWith(
                   color: Colors.white,
                   fontSize: 20,
@@ -219,9 +220,9 @@ class UserProfileScreen extends GetView<UserProfileController> {
                     const SizedBox(height: 24),
 
                     // Appearance Section
-                    _SectionLabel(label: 'Appearance'),
+                    _SectionLabel(label: 'appearance'.tr),
                     const SizedBox(height: 10),
-                    _ThemeToggleCard(isDark: isDark)
+                    const _ThemePickerCard()
                         .animate()
                         .fade(duration: 400.ms, delay: 300.ms)
                         .slideY(
@@ -229,6 +230,16 @@ class UserProfileScreen extends GetView<UserProfileController> {
                           end: 0,
                           duration: 400.ms,
                           delay: 300.ms,
+                        ),
+                    const SizedBox(height: 12),
+                    const _LanguagePickerCard()
+                        .animate()
+                        .fade(duration: 400.ms, delay: 360.ms)
+                        .slideY(
+                          begin: 0.3,
+                          end: 0,
+                          duration: 400.ms,
+                          delay: 360.ms,
                         ),
                   ],
                 ),
@@ -567,13 +578,16 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-class _ThemeToggleCard extends StatelessWidget {
-  final bool isDark;
-  const _ThemeToggleCard({required this.isDark});
+class _ThemePickerCard extends StatelessWidget {
+  const _ThemePickerCard();
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final settings = Get.find<AppSettingsController>();
+
     return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -585,39 +599,207 @@ class _ThemeToggleCard extends StatelessWidget {
           ),
         ],
       ),
-      child: ListTile(
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF7B1FA2).withValues(alpha: 0.12),
-            shape: BoxShape.circle,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7B1FA2).withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.palette_rounded,
+                  color: Color(0xFF7B1FA2),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'theme'.tr,
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black87,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                ),
+              ),
+            ],
           ),
-          child: Icon(
-            isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-            color: const Color(0xFF7B1FA2),
-            size: 20,
+          const SizedBox(height: 14),
+          Obx(() {
+            final mode = settings.themeMode.value;
+            return Row(
+              children: [
+                Expanded(
+                  child: _SegmentChip(
+                    label: 'theme_system'.tr,
+                    icon: Icons.brightness_auto_rounded,
+                    selected: mode == ThemeMode.system,
+                    onTap: () => settings.setThemeMode(ThemeMode.system),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SegmentChip(
+                    label: 'theme_light'.tr,
+                    icon: Icons.light_mode_rounded,
+                    selected: mode == ThemeMode.light,
+                    onTap: () => settings.setThemeMode(ThemeMode.light),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SegmentChip(
+                    label: 'theme_dark'.tr,
+                    icon: Icons.dark_mode_rounded,
+                    selected: mode == ThemeMode.dark,
+                    onTap: () => settings.setThemeMode(ThemeMode.dark),
+                  ),
+                ),
+              ],
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _LanguagePickerCard extends StatelessWidget {
+  const _LanguagePickerCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final settings = Get.find<AppSettingsController>();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.07),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
-        ),
-        title: Text(
-          isDark ? 'Dark Mode' : 'Light Mode',
-          style: TextStyle(
-            color: isDark ? Colors.white : Colors.black87,
-            fontWeight: FontWeight.w600,
-            fontSize: 15,
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppUi.brandBlue.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.language_rounded,
+                  color: AppUi.brandBlue,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'language'.tr,
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black87,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                ),
+              ),
+            ],
           ),
-        ),
-        subtitle: Text(
-          'Tap to switch theme',
-          style: TextStyle(color: Colors.grey[500], fontSize: 12),
-        ),
-        trailing: Switch(
-          value: isDark,
-          onChanged: (_) {
-            Get.changeThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
-          },
-          activeThumbColor: const Color(0xFF7B1FA2),
+          const SizedBox(height: 14),
+          Obx(() {
+            final code = settings.localeCode.value;
+            return Row(
+              children: [
+                Expanded(
+                  child: _SegmentChip(
+                    label: 'language_en'.tr,
+                    icon: Icons.translate_rounded,
+                    selected: code == 'en',
+                    onTap: () => settings.setLocaleCode('en'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SegmentChip(
+                    label: 'language_bn'.tr,
+                    icon: Icons.translate_rounded,
+                    selected: code == 'bn',
+                    onTap: () => settings.setLocaleCode('bn'),
+                  ),
+                ),
+              ],
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _SegmentChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SegmentChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = AppUi.brandDeep;
+
+    return Material(
+      color: selected
+          ? accent.withValues(alpha: isDark ? 0.35 : 0.12)
+          : (isDark ? Colors.white10 : const Color(0xFFF2F4F8)),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          child: Column(
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: selected
+                    ? accent
+                    : (isDark ? Colors.white70 : Colors.black54),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected
+                      ? (isDark ? Colors.white : accent)
+                      : (isDark ? Colors.white70 : Colors.black54),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

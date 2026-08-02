@@ -1,58 +1,93 @@
-import 'package:get/get.dart';
-import 'package:toolmate/features/notification_history/notification_history_controller.dart';
-import 'package:toolmate/features/user_profile/user_profile_controller.dart';
-import 'package:toolmate/features/user_profile/user_profile_screen.dart';
 import 'package:flutter/material.dart';
-import 'app_routes.dart';
-import '../features/home/home_screen.dart';
+import 'package:get/get.dart';
+
+import '../features/clipboard_manager/clipboard_controller.dart';
+import '../features/clipboard_manager/clipboard_screen.dart';
 import '../features/home/home_controller.dart';
-import '../features/storage_analyzer/storage_analyzer_screen.dart';
-import '../features/storage_analyzer/storage_analyzer_controller.dart';
-import '../features/video_downloader/video_downloader_screen.dart';
-import '../features/video_downloader/video_downloader_controller.dart';
+import '../features/home/home_screen.dart';
+import '../features/notes/notes_controller.dart';
+import '../features/notes/notes_screen.dart';
+import '../features/notification_history/notification_history_controller.dart';
 import '../features/notification_history/notification_history_screen.dart';
+import '../features/splash/splash_screen.dart';
+import '../features/storage_analyzer/storage_analyzer_controller.dart';
+import '../features/storage_analyzer/storage_analyzer_screen.dart';
+import '../features/unit_converter/unit_converter_controller.dart';
+import '../features/unit_converter/unit_converter_screen.dart';
+import '../features/user_profile/user_profile_controller.dart';
+import '../features/user_profile/user_profile_screen.dart';
+import '../features/video_downloader/video_downloader_controller.dart';
+import '../features/video_downloader/video_downloader_screen.dart';
+import 'app_routes.dart';
 
+/// Only routes for shipped, fully working features.
 class AppPages {
-  static const initial = Routes.home;
+  AppPages._();
 
-  static final routes = [
-    GetPage(
+  static const initial = Routes.splash;
+  static const _transition = Transition.cupertino;
+  static const _duration = Duration(milliseconds: 220);
+
+  static void _ensureNotificationController() {
+    if (!Get.isRegistered<NotificationHistoryController>()) {
+      Get.put(NotificationHistoryController(), permanent: true);
+    }
+  }
+
+  static GetPage<T> _page<T>({
+    required String name,
+    required GetPageBuilder page,
+    void Function()? bind,
+    Transition? transition,
+    Duration? transitionDuration,
+  }) {
+    return GetPage<T>(
+      name: name,
+      page: page,
+      binding: bind == null ? null : BindingsBuilder(bind),
+      transition: transition ?? _transition,
+      transitionDuration: transitionDuration ?? _duration,
+    );
+  }
+
+  static final routes = <GetPage>[
+    _page(
+      name: Routes.splash,
+      page: () => const SplashScreen(),
+      transition: Transition.fadeIn,
+      transitionDuration: const Duration(milliseconds: 400),
+    ),
+    _page(
       name: Routes.home,
       page: () => const HomeScreen(),
-      binding: BindingsBuilder(() {
+      bind: () {
         Get.put(HomeController());
-      }),
+        // Start notification capture as soon as the app opens.
+        _ensureNotificationController();
+      },
+      transition: Transition.fadeIn,
+      transitionDuration: const Duration(milliseconds: 450),
     ),
-    GetPage(
+    _page(
       name: Routes.storageAnalyzer,
       page: () => const StorageAnalyzerScreen(),
-      transition: Transition.cupertino,
-      transitionDuration: const Duration(milliseconds: 220),
-      binding: BindingsBuilder(() {
+      bind: () {
         Get.put(StorageAnalyzerController());
-      }),
+      },
     ),
-    GetPage(
+    _page(
       name: Routes.videoDownloader,
       page: () => const VideoDownloaderScreen(),
-      transition: Transition.cupertino,
-      transitionDuration: const Duration(milliseconds: 220),
-      binding: BindingsBuilder(() {
+      bind: () {
         Get.put(VideoDownloaderController());
-      }),
+      },
     ),
-    GetPage(
+    _page(
       name: Routes.notificationHistory,
       page: () => const NotificationHistoryScreen(),
-      transition: Transition.cupertino,
-      transitionDuration: const Duration(milliseconds: 220),
-      binding: BindingsBuilder(() {
-        if (!Get.isRegistered<NotificationHistoryController>()) {
-          Get.put(NotificationHistoryController());
-        }
-      }),
+      bind: _ensureNotificationController,
     ),
-    GetPage(
+    _page(
       name: Routes.notificationApp,
       page: () {
         final args = Get.arguments as Map<String, dynamic>? ?? {};
@@ -62,15 +97,9 @@ class AppPages {
           appColor: args['appColor'] as Color? ?? Colors.orangeAccent,
         );
       },
-      transition: Transition.cupertino,
-      transitionDuration: const Duration(milliseconds: 200),
-      binding: BindingsBuilder(() {
-        if (!Get.isRegistered<NotificationHistoryController>()) {
-          Get.put(NotificationHistoryController());
-        }
-      }),
+      bind: _ensureNotificationController,
     ),
-    GetPage(
+    _page(
       name: Routes.notificationChat,
       page: () {
         final args = Get.arguments as Map<String, dynamic>? ?? {};
@@ -81,22 +110,35 @@ class AppPages {
           appColor: args['appColor'] as Color? ?? Colors.orangeAccent,
         );
       },
-      transition: Transition.cupertino,
-      transitionDuration: const Duration(milliseconds: 200),
-      binding: BindingsBuilder(() {
-        if (!Get.isRegistered<NotificationHistoryController>()) {
-          Get.put(NotificationHistoryController());
-        }
-      }),
+      bind: _ensureNotificationController,
     ),
-    GetPage(
+    _page(
+      name: Routes.notes,
+      page: () => const NotesScreen(),
+      bind: () {
+        Get.put(NotesController());
+      },
+    ),
+    _page(
+      name: Routes.unitConverter,
+      page: () => const UnitConverterScreen(),
+      bind: () {
+        Get.put(UnitConverterController());
+      },
+    ),
+    _page(
+      name: Routes.clipboard,
+      page: () => const ClipboardScreen(),
+      bind: () {
+        Get.put(ClipboardController());
+      },
+    ),
+    _page(
       name: Routes.userProfile,
       page: () => const UserProfileScreen(),
-      transition: Transition.cupertino,
-      transitionDuration: const Duration(milliseconds: 220),
-      binding: BindingsBuilder(() {
+      bind: () {
         Get.put(UserProfileController());
-      }),
+      },
     ),
   ];
 }
