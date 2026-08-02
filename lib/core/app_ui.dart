@@ -58,9 +58,10 @@ class AppUi {
     required PreferredSizeWidget? appBar,
     required Widget body,
     Widget? floatingActionButton,
+    bool extendBodyBehindAppBar = true,
   }) {
     return Scaffold(
-      extendBodyBehindAppBar: appBar != null,
+      extendBodyBehindAppBar: appBar != null && extendBodyBehindAppBar,
       appBar: appBar,
       floatingActionButton: floatingActionButton,
       body: Container(

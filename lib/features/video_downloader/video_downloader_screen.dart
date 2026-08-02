@@ -16,18 +16,17 @@ class VideoDownloaderScreen extends GetView<VideoDownloaderController> {
     return AppUi.gradientScaffold(
       context: context,
       appBar: _buildAppBar(context),
+      extendBodyBehindAppBar: false,
       body: Column(
         children: [
           _buildTabBar(context),
           Expanded(
-            child: SafeArea(
-              child: TabBarView(
-                controller: controller.tabController,
-                children: [
-                  _InsertLinkTab(controller: controller),
-                  _DownloadedTab(controller: controller),
-                ],
-              ),
+            child: TabBarView(
+              controller: controller.tabController,
+              children: [
+                _InsertLinkTab(controller: controller),
+                _DownloadedTab(controller: controller),
+              ],
             ),
           ),
         ],
