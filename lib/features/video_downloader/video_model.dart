@@ -19,11 +19,22 @@ class VideoModel extends HiveObject {
   @HiveField(4)
   final DateTime downloadDate;
 
+  /// `video`, `image`, or `gif`
+  @HiveField(5, defaultValue: 'video')
+  final String mediaType;
+
+  @HiveField(6, defaultValue: '')
+  final String platform;
+
   VideoModel({
     required this.url,
     required this.title,
     required this.thumbnailUrl,
     required this.savePath,
     required this.downloadDate,
+    this.mediaType = 'video',
+    this.platform = '',
   });
+
+  bool get isImage => mediaType == 'image' || mediaType == 'gif';
 }

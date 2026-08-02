@@ -25,7 +25,7 @@ class HomeScreen extends GetView<HomeController> {
       ),
       FeatureAccent(
         title: 'Video Downloader',
-        subtitle: 'Save videos offline',
+        subtitle: 'Videos & images from socials',
         icon: FontAwesomeIcons.cloudArrowDown,
         color: AppUi.brandPink,
         onTap: controller.navigateToVideoDownloader,

@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../core/app_ui.dart';
 import '../../core/style.dart';
+import 'social_media_service.dart';
 import 'video_downloader_controller.dart';
 import 'video_model.dart';
 
@@ -165,9 +167,10 @@ class _InsertLinkTab extends StatelessWidget {
                         style: TextStyle(
                             color: isDark ? Colors.white : Colors.black87),
                         decoration: InputDecoration(
-                          hintText: 'Paste Social media video link...',
+                          hintText:
+                              'Paste YouTube, Instagram, TikTok, FB… link',
                           hintStyle:
-                              TextStyle(color: hintColor, fontSize: 14),
+                              TextStyle(color: hintColor, fontSize: 13),
                           filled: true,
                           fillColor: fieldFill,
                           contentPadding: const EdgeInsets.symmetric(
@@ -209,6 +212,8 @@ class _InsertLinkTab extends StatelessWidget {
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                _SupportedPlatformsRow(),
                 const SizedBox(height: 14),
 
                 // Download button
@@ -298,121 +303,181 @@ class _InsertLinkTab extends StatelessWidget {
             ),
           ),
 
-          // ── Video found preview card ────────────────────────────────────────
+          // ── Media found preview card ────────────────────────────────────────
           Obx(() {
             if (controller.currentVideo.value == null) {
               return const SizedBox.shrink();
             }
             final video = controller.currentVideo.value!;
+            final selected = controller.selectedMedia.value;
+            final isImage = video.isImage;
             final cardBg = isDark ? const Color(0xFF2C2C2E) : Colors.white;
             final cancelBorder =
                 isDark ? Colors.white24 : Colors.grey.shade300;
             final cancelText =
                 isDark ? Colors.grey.shade300 : Colors.black54;
+            final items = controller.resolvedItems;
 
-            return Container(
-              margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              decoration: BoxDecoration(
-                color: cardBg,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: isDark ? Colors.white10 : Colors.grey.shade200),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withValues(
-                          alpha: isDark ? 0.3 : 0.05),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2)),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // Thumbnail
-                  ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(12)),
-                    child: video.thumbnailUrl.isNotEmpty
-                        ? Image.network(
-                            video.thumbnailUrl,
-                            height: 180,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorBuilder: (ctx, err, _) =>
-                                _videoPlaceholder(),
-                          )
-                        : _videoPlaceholder(),
+            return Column(
+              children: [
+                if (items.length > 1)
+                  _MediaPickerStrip(
+                    items: items.toList(),
+                    selected: selected,
+                    onSelect: controller.selectMedia,
+                    isDark: isDark,
                   ),
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(video.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                                color:
-                                    isDark ? Colors.white : Colors.black87)),
-                        const SizedBox(height: 4),
-                        Text(Uri.parse(video.url).host,
-                            style: TextStyle(
-                                color: subtitleColor, fontSize: 12)),
-                        const SizedBox(height: 12),
-                        Row(
+                Container(
+                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color:
+                            isDark ? Colors.white10 : Colors.grey.shade200),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.black.withValues(
+                              alpha: isDark ? 0.3 : 0.05),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2)),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      ClipRRect(
+                        borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(12)),
+                        child: Stack(
+                          alignment: Alignment.center,
                           children: [
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () =>
-                                    controller.currentVideo.value = null,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 12),
-                                  decoration: BoxDecoration(
-                                    border: Border.all(color: cancelBorder),
-                                    borderRadius:
-                                        BorderRadius.circular(8),
-                                  ),
-                                  child: Center(
-                                    child: Text('Cancel',
-                                        style: TextStyle(
-                                            color: cancelText,
-                                            fontWeight:
-                                                FontWeight.w500)),
-                                  ),
+                            video.thumbnailUrl.isNotEmpty
+                                ? Image.network(
+                                    video.thumbnailUrl,
+                                    height: 180,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (ctx, err, _) =>
+                                        _videoPlaceholder(isImage: isImage),
+                                  )
+                                : _videoPlaceholder(isImage: isImage),
+                            if (!isImage)
+                              Container(
+                                width: 52,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  color: Colors.black45,
+                                  borderRadius: BorderRadius.circular(26),
                                 ),
+                                child: const Icon(
+                                    Icons.play_arrow_rounded,
+                                    color: Colors.white,
+                                    size: 32),
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: controller.downloadVideo,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 12),
-                                  decoration: BoxDecoration(
-                                    color: _kBlue,
-                                    borderRadius:
-                                        BorderRadius.circular(8),
-                                  ),
-                                  child: const Center(
-                                    child: Text('Save to Gallery',
-                                        style: TextStyle(
-                                            color: Colors.white,
-                                            fontWeight:
-                                                FontWeight.w600)),
-                                  ),
+                            Positioned(
+                              left: 10,
+                              top: 10,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  [
+                                    if (video.platform.isNotEmpty)
+                                      video.platform,
+                                    isImage ? 'Image' : 'Video',
+                                  ].join(' · '),
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 11),
                                 ),
                               ),
                             ),
                           ],
                         ),
-                      ],
-                    ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(video.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87)),
+                            const SizedBox(height: 4),
+                            Text(
+                                video.platform.isNotEmpty
+                                    ? video.platform
+                                    : Uri.parse(video.url).host,
+                                style: TextStyle(
+                                    color: subtitleColor, fontSize: 12)),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: controller.clearPreview,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 12),
+                                      decoration: BoxDecoration(
+                                        border:
+                                            Border.all(color: cancelBorder),
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                      ),
+                                      child: Center(
+                                        child: Text('Cancel',
+                                            style: TextStyle(
+                                                color: cancelText,
+                                                fontWeight:
+                                                    FontWeight.w500)),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: controller.downloadVideo,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 12),
+                                      decoration: BoxDecoration(
+                                        color: _kBlue,
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                            isImage
+                                                ? 'Save Image'
+                                                : 'Save to Gallery',
+                                            style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight:
+                                                    FontWeight.w600)),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             );
           }),
 
@@ -435,17 +500,19 @@ class _InsertLinkTab extends StatelessWidget {
                 const SizedBox(height: 16),
                 _HowToStep(
                   number: 1,
-                  text: 'Open Social media and Copy link video',
+                  text:
+                      'Open Instagram, TikTok, YouTube, Facebook… and copy the post link',
                 ),
                 const SizedBox(height: 12),
                 _HowToStep(
                   number: 2,
-                  text: 'Open "Video Downloader" and Paste link video',
+                  text: 'Paste the link here and tap Download',
                 ),
                 const SizedBox(height: 12),
                 _HowToStep(
                   number: 3,
-                  text: 'Press Download and Choose the type you want',
+                  text:
+                      'Pick a video/image if there are multiple, then Save to Gallery',
                 ),
               ],
             ),
@@ -455,13 +522,150 @@ class _InsertLinkTab extends StatelessWidget {
     );
   }
 
-  Widget _videoPlaceholder() {
+  Widget _videoPlaceholder({bool isImage = false}) {
     return Container(
       height: 180,
       color: Colors.grey.shade800,
-      child: const Center(
-        child: Icon(Icons.play_circle_outline_rounded,
-            color: Colors.white70, size: 60),
+      child: Center(
+        child: Icon(
+            isImage
+                ? Icons.image_outlined
+                : Icons.play_circle_outline_rounded,
+            color: Colors.white70,
+            size: 60),
+      ),
+    );
+  }
+}
+
+class _SupportedPlatformsRow extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final platforms = SocialMediaService.supportedPlatforms;
+    return SizedBox(
+      height: 32,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: platforms.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
+        itemBuilder: (_, i) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF2C2C2E) : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? Colors.white12 : Colors.grey.shade300,
+              ),
+            ),
+            child: Text(
+              platforms[i],
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: isDark ? Colors.grey.shade300 : Colors.black54,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MediaPickerStrip extends StatelessWidget {
+  final List<ResolvedMedia> items;
+  final ResolvedMedia? selected;
+  final ValueChanged<ResolvedMedia> onSelect;
+  final bool isDark;
+
+  const _MediaPickerStrip({
+    required this.items,
+    required this.selected,
+    required this.onSelect,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 86,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final item = items[i];
+          final isSelected = identical(item, selected) ||
+              item.downloadUrl == selected?.downloadUrl;
+          return GestureDetector(
+            onTap: () => onSelect(item),
+            child: Container(
+              width: 72,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: isSelected ? _kBlue : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    item.thumbnailUrl.isNotEmpty
+                        ? Image.network(
+                            item.thumbnailUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => ColoredBox(
+                              color: isDark
+                                  ? Colors.grey.shade800
+                                  : Colors.grey.shade300,
+                              child: Icon(
+                                item.kind == MediaKind.video
+                                    ? Icons.videocam
+                                    : Icons.image,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          )
+                        : ColoredBox(
+                            color: isDark
+                                ? Colors.grey.shade800
+                                : Colors.grey.shade300,
+                            child: Icon(
+                              item.kind == MediaKind.video
+                                  ? Icons.videocam
+                                  : Icons.image,
+                              color: Colors.white70,
+                            ),
+                          ),
+                    Positioned(
+                      right: 4,
+                      bottom: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          item.kind == MediaKind.video ? 'VID' : 'IMG',
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 9),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -492,13 +696,13 @@ class _DownloadedTab extends StatelessWidget {
               Icon(Icons.video_library_outlined,
                   size: 72, color: emptyIconColor),
               const SizedBox(height: 16),
-              Text('No downloaded videos yet',
+              Text('No downloads yet',
                   style: TextStyle(
                       color: emptyTextColor,
                       fontSize: 16,
                       fontWeight: FontWeight.w500)),
               const SizedBox(height: 6),
-              Text('Go to Insert link tab to download a video',
+              Text('Paste a social media link to save video or image',
                   style: TextStyle(color: emptySubColor, fontSize: 13)),
             ],
           ),
@@ -514,14 +718,14 @@ class _DownloadedTab extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '${controller.downloadHistory.length} video(s)',
+                  '${controller.downloadHistory.length} item(s)',
                   style: TextStyle(color: countColor, fontSize: 13),
                 ),
                 GestureDetector(
                   onTap: () {
                     Get.defaultDialog(
                       title: 'Clear All',
-                      middleText: 'Remove all downloaded videos?',
+                      middleText: 'Remove all downloaded items?',
                       textConfirm: 'Clear All',
                       textCancel: 'Cancel',
                       confirmTextColor: Colors.white,
@@ -609,14 +813,24 @@ class _VideoListItem extends StatelessWidget {
                 controller.copyLink(video);
               },
             ),
-            _BottomSheetOption(
-              icon: Icons.play_circle_outline_rounded,
-              label: 'Play now',
-              onTap: () {
-                Get.back();
-                controller.playVideo(video);
-              },
-            ),
+            if (!video.isImage)
+              _BottomSheetOption(
+                icon: Icons.play_circle_outline_rounded,
+                label: 'Play now',
+                onTap: () {
+                  Get.back();
+                  controller.openMedia(video);
+                },
+              )
+            else
+              _BottomSheetOption(
+                icon: Icons.image_outlined,
+                label: 'View image',
+                onTap: () {
+                  Get.back();
+                  controller.openMedia(video);
+                },
+              ),
             _BottomSheetOption(
               icon: Icons.share_rounded,
               label: 'Share',
@@ -632,7 +846,7 @@ class _VideoListItem extends StatelessWidget {
               onTap: () {
                 Get.back();
                 Get.defaultDialog(
-                  title: 'Delete Video',
+                  title: 'Delete',
                   middleText: 'Delete "${video.title}"?',
                   textConfirm: 'Delete',
                   textCancel: 'Cancel',
@@ -670,7 +884,6 @@ class _VideoListItem extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: BorderRadius.circular(12),
@@ -682,7 +895,14 @@ class _VideoListItem extends StatelessWidget {
               offset: const Offset(0, 2)),
         ],
       ),
-      child: Row(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => controller.openMedia(video),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
         children: [
           // Thumbnail / play icon
           ClipRRect(
@@ -690,21 +910,17 @@ class _VideoListItem extends StatelessWidget {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                video.thumbnailUrl.isNotEmpty
-                    ? Image.network(
-                        video.thumbnailUrl,
-                        width: 72,
-                        height: 52,
-                        fit: BoxFit.cover,
-                        errorBuilder: (ctx, err, _) => _thumbPlaceholder(),
-                      )
-                    : _thumbPlaceholder(),
+                _listThumb(video),
                 Container(
                   width: 72,
                   height: 52,
                   color: Colors.black26,
-                  child: const Icon(Icons.play_circle_outline_rounded,
-                      color: Colors.white, size: 28),
+                  child: Icon(
+                      video.isImage
+                          ? Icons.image_outlined
+                          : Icons.play_circle_outline_rounded,
+                      color: Colors.white,
+                      size: 28),
                 ),
               ],
             ),
@@ -773,7 +989,7 @@ class _VideoListItem extends StatelessWidget {
                       onTap: () {
                         Get.defaultDialog(
                           title: 'Delete',
-                          middleText: 'Delete this video?',
+                          middleText: 'Delete this item?',
                           textConfirm: 'Delete',
                           textCancel: 'Cancel',
                           confirmTextColor: Colors.white,
@@ -804,7 +1020,33 @@ class _VideoListItem extends StatelessWidget {
           ),
         ],
       ),
+          ),
+        ),
+      ),
     );
+  }
+
+  Widget _listThumb(VideoModel video) {
+    final local = File(video.savePath);
+    if (local.existsSync() && video.isImage) {
+      return Image.file(
+        local,
+        width: 72,
+        height: 52,
+        fit: BoxFit.cover,
+        errorBuilder: (ctx, err, _) => _thumbPlaceholder(),
+      );
+    }
+    if (video.thumbnailUrl.isNotEmpty) {
+      return Image.network(
+        video.thumbnailUrl,
+        width: 72,
+        height: 52,
+        fit: BoxFit.cover,
+        errorBuilder: (ctx, err, _) => _thumbPlaceholder(),
+      );
+    }
+    return _thumbPlaceholder();
   }
 
   Widget _thumbPlaceholder() {

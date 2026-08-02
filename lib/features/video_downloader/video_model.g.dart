@@ -22,13 +22,15 @@ class VideoModelAdapter extends TypeAdapter<VideoModel> {
       thumbnailUrl: fields[2] as String,
       savePath: fields[3] as String,
       downloadDate: fields[4] as DateTime,
+      mediaType: fields[5] as String? ?? 'video',
+      platform: fields[6] as String? ?? '',
     );
   }
 
   @override
   void write(BinaryWriter writer, VideoModel obj) {
     writer
-      ..writeByte(5)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.url)
       ..writeByte(1)
@@ -38,7 +40,11 @@ class VideoModelAdapter extends TypeAdapter<VideoModel> {
       ..writeByte(3)
       ..write(obj.savePath)
       ..writeByte(4)
-      ..write(obj.downloadDate);
+      ..write(obj.downloadDate)
+      ..writeByte(5)
+      ..write(obj.mediaType)
+      ..writeByte(6)
+      ..write(obj.platform);
   }
 
   @override
