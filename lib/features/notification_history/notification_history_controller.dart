@@ -6,8 +6,10 @@ import 'package:get/get.dart';
 import 'package:hive/hive.dart';
 import 'package:notification_listener_service/notification_event.dart';
 import 'package:notification_listener_service/notification_listener_service.dart';
-import 'notification_model.dart';
 import 'package:share_plus/share_plus.dart';
+
+import '../../core/background_service.dart';
+import 'notification_model.dart';
 
 class NotificationHistoryController extends GetxController {
   late Box<NotificationModel> box;
@@ -56,11 +58,37 @@ class NotificationHistoryController extends GetxController {
     box = Hive.box<NotificationModel>('notifications');
     _loadFromHive();
     _initService();
-    // Hive BG isolate writes aren't visible until reopen.
+    // BG isolate writes to a JSONL queue (not Hive) — drain periodically.
     _periodicSync = Timer.periodic(
       const Duration(seconds: 8),
-      (_) => refreshFromDisk(forceReopen: true),
+      (_) => unawaited(_drainPendingQueue()),
     );
+  }
+
+  /// Import captures written by the background isolate while UI was dead.
+  Future<void> _drainPendingQueue() async {
+    try {
+      final imported = await BackgroundService.drainPendingNotifications(
+        (json) async {
+          final notif = NotificationModel.fromJson(json);
+          if (notif.id.isEmpty || notif.packageName.isEmpty) return;
+          if (_seenIds.contains(notif.id)) return;
+          if (_isRecentDuplicate(notif.packageName, notif.title, notif.text)) {
+            return;
+          }
+          await box.add(notif);
+          _seenIds.add(notif.id);
+          notifications.insert(0, notif);
+        },
+      );
+      if (imported > 0) {
+        _updateUniqueApps();
+        _rebuildUnreadCaches();
+        _applyFilters();
+      }
+    } catch (_) {
+      // Keep UI responsive if drain fails.
+    }
   }
 
   @override
@@ -114,7 +142,7 @@ class NotificationHistoryController extends GetxController {
   void _scheduleSoftRefresh() {
     _refreshDebounce?.cancel();
     _refreshDebounce = Timer(const Duration(milliseconds: 500), () {
-      refreshFromDisk(forceReopen: true);
+      unawaited(_drainPendingQueue());
     });
   }
 
@@ -265,7 +293,7 @@ class NotificationHistoryController extends GetxController {
       }
     } catch (_) {}
 
-    await refreshFromDisk(forceReopen: true);
+    await _drainPendingQueue();
   }
 
   void _updateUniqueApps() {

@@ -63,39 +63,37 @@ class VideoDownloaderScreen extends GetView<VideoDownloaderController> {
                 const Icon(Icons.download_rounded, color: Colors.white, size: 18),
           ),
           const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              'Video Downloader',
-              style: openSansBold.copyWith(
-                color: titleColor,
-                fontSize: 15,
-              ),
+          Text(
+            'Video Downloader',
+            style: openSansBold.copyWith(
+              color: titleColor,
+              fontSize: 15,
             ),
           ),
         ],
       ),
-      centerTitle: true,
+      centerTitle: false,
       actions: [
-        Container(
-          margin: const EdgeInsets.only(right: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFFF8F00), Color(0xFFFFB300)],
-            ),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.diamond_rounded, color: Colors.white, size: 14),
-              const SizedBox(width: 4),
-              Text(
-                'Sale 60%',
-                style: openSansBold.copyWith(color: Colors.white, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
+        // Container(
+        //   margin: const EdgeInsets.only(right: 12),
+        //   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        //   decoration: BoxDecoration(
+        //     gradient: const LinearGradient(
+        //       colors: [Color(0xFFFF8F00), Color(0xFFFFB300)],
+        //     ),
+        //     borderRadius: BorderRadius.circular(20),
+        //   ),
+        //   child: Row(
+        //     children: [
+        //       const Icon(Icons.diamond_rounded, color: Colors.white, size: 14),
+        //       const SizedBox(width: 4),
+        //       Text(
+        //         'Sale 60%',
+        //         style: openSansBold.copyWith(color: Colors.white, fontSize: 12),
+        //       ),
+        //     ],
+        //   ),
+        // ),
       ],
     );
   }

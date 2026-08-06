@@ -1,14 +1,19 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:notification_listener_service/notification_event.dart';
 import 'package:notification_listener_service/notification_listener_service.dart';
+import 'package:path_provider/path_provider.dart';
 
-import '../features/notification_history/notification_model.dart';
+/// Pending captures written by the BG isolate when the UI is gone.
+/// Must NOT use Hive here — Hive cannot open the same box in two isolates,
+/// which hangs cold start after swipe-from-recents.
+const String kPendingNotificationsFile = 'pending_notifications.jsonl';
 
 @pragma('vm:entry-point')
 class BackgroundService {
@@ -33,7 +38,10 @@ class BackgroundService {
     await service.configure(
       androidConfiguration: AndroidConfiguration(
         onStart: onStart,
-        autoStart: true,
+        // Don't auto-respawn after swipe-kill — that leaves a lone FlutterEngine
+        // and blocks the next UI cold start (stuck splash).
+        autoStart: false,
+        autoStartOnBoot: false,
         isForegroundMode: true,
         notificationChannelId: 'my_foreground',
         initialNotificationTitle: 'Toolmate',
@@ -41,16 +49,48 @@ class BackgroundService {
         foregroundServiceNotificationId: 888,
       ),
       iosConfiguration: IosConfiguration(
-        autoStart: true,
+        autoStart: false,
         onForeground: onStart,
         onBackground: onIosBackground,
       ),
     );
 
-    // Ensure service is up after configure.
+    // Start only if UI asked us to and nothing is running.
     final running = await service.isRunning();
     if (!running) {
       await service.startService();
+    }
+  }
+
+  /// Drain file-queue written by the background isolate into [onItem].
+  static Future<int> drainPendingNotifications(
+    FutureOr<void> Function(Map<String, dynamic> json) onItem,
+  ) async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/$kPendingNotificationsFile');
+      if (!await file.exists()) return 0;
+
+      final raw = await file.readAsString();
+      // Truncate immediately so we don't double-import on crash mid-drain.
+      await file.writeAsString('', flush: true);
+      if (raw.trim().isEmpty) return 0;
+
+      var count = 0;
+      for (final line in raw.split('\n')) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty) continue;
+        try {
+          final map = jsonDecode(trimmed) as Map<String, dynamic>;
+          await onItem(map);
+          count++;
+        } catch (_) {
+          // Skip corrupt lines.
+        }
+      }
+      return count;
+    } catch (_) {
+      return 0;
     }
   }
 
@@ -62,12 +102,6 @@ class BackgroundService {
   @pragma('vm:entry-point')
   static void onStart(ServiceInstance service) async {
     DartPluginRegistrant.ensureInitialized();
-
-    await Hive.initFlutter();
-    if (!Hive.isAdapterRegistered(NotificationModelAdapter().typeId)) {
-      Hive.registerAdapter(NotificationModelAdapter());
-    }
-    final box = await Hive.openBox<NotificationModel>('notifications');
 
     // Short-window dedupe: package + title + text (allows real updates later).
     final recentKeys = <String, int>{};
@@ -110,6 +144,21 @@ class BackgroundService {
     String fingerprint(String packageName, String title, String text) =>
         '$packageName|$title|$text';
 
+    Future<void> appendPending(Map<String, dynamic> json) async {
+      try {
+        final dir = await getApplicationDocumentsDirectory();
+        final file = File('${dir.path}/$kPendingNotificationsFile');
+        await file.writeAsString(
+          '${jsonEncode(json)}\n',
+          mode: FileMode.append,
+          flush: true,
+        );
+      } catch (e) {
+        // ignore: avoid_print
+        print('Pending notification write failed: $e');
+      }
+    }
+
     Future<void> persist(ServiceNotificationEvent event) async {
       if (shouldSkip(event)) return;
 
@@ -144,24 +193,22 @@ class BackgroundService {
       final uniqueId =
           '${packageName}_${androidId}_${Object.hash(title, content)}';
 
-      // Already stored (e.g. UI isolate also captured this).
-      final already = box.values.any((n) => n.id == uniqueId);
-      if (already) return;
+      final json = <String, dynamic>{
+        'id': uniqueId,
+        'packageName': packageName,
+        'title': title,
+        'text': content,
+        'timestamp': now.toIso8601String(),
+        'isRead': false,
+        // Icons are large; UI/foreground path still gets them when alive.
+        'senderIcon': null,
+        'androidId': androidId,
+      };
 
-      final newNotif = NotificationModel(
-        id: uniqueId,
-        packageName: packageName,
-        title: title,
-        text: content,
-        timestamp: now,
-        senderIcon: senderIcon,
-      );
+      // Always queue to disk so captures survive when UI isolate is dead.
+      await appendPending(json);
 
-      await box.add(newNotif);
-
-      final json = newNotif.toJson();
-      json['senderIcon'] = null;
-      json['androidId'] = androidId;
+      // Live UI isolate (if any) picks this up immediately.
       service.invoke('onNotificationCaptured', json);
     }
 

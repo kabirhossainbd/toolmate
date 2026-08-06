@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
@@ -58,9 +59,13 @@
             </intent-filter>
         </service>
 
+        <!-- stopWithTask=true so swipe-from-recents tears down the FGS with the UI.
+             MainActivity also cancels WatchdogReceiver so it cannot respawn a lone engine. -->
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="true"
+            tools:node="replace" />
     </application>
 
     <!-- Required to query activities that can process text, see:

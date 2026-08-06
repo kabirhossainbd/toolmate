@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -29,7 +31,20 @@ Future<void> main() async {
     Hive.openBox(AppConstants.boxClipboard),
   ]);
 
-  await BackgroundService.initializeService();
+  // Never block first frame on BG service — configure/start can hang when the
+  // foreground service survived swipe-from-recents (stopWithTask=false).
+  unawaited(
+    BackgroundService.initializeService().timeout(
+      const Duration(seconds: 8),
+      onTimeout: () {
+        // ignore: avoid_print
+        print('BackgroundService.initializeService timed out');
+      },
+    ).catchError((Object e) {
+      // ignore: avoid_print
+      print('BackgroundService.initializeService failed: $e');
+    }),
+  );
 
   // Preferences before first frame
   Get.put(AppSettingsController(), permanent: true);
