@@ -16,36 +16,33 @@ class ServiceNotificationEvent {
   bool? hasRemoved;
 
   /// notification extras image
-  /// To display an image simply use the [Image.memory] widget.
-  /// Example:
-  ///
-  /// ```
-  /// Image.memory(notif.extrasPicture)
-  /// ```
   Uint8List? extrasPicture;
 
   /// notification package name
   String? packageName;
 
-  /// notification title
+  /// notification title (conversation / app title)
   String? title;
 
+  /// MessagingStyle person name when available
+  String? sender;
+
+  /// Stable Android notification key (package|tag|id)
+  String? key;
+
+  /// Android notification tag
+  String? tag;
+
+  /// Notification channel id (O+)
+  String? channelId;
+
+  /// Android StatusBarNotification post time (ms since epoch)
+  int? postTime;
+
   /// the notification app icon
-  /// To display an image simply use the [Image.memory] widget.
-  /// Example:
-  ///
-  /// ```
-  /// Image.memory(notif.appIcon)
-  /// ```
   Uint8List? appIcon;
 
-  /// the notification large icon (ex: album covers)
-  /// To display an image simply use the [Image.memory] widget.
-  /// Example:
-  ///
-  /// ```
-  /// Image.memory(notif.largeIcon)
-  /// ```
+  /// the notification large icon (ex: album covers / avatar)
   Uint8List? largeIcon;
 
   /// the content of the notification
@@ -62,6 +59,11 @@ class ServiceNotificationEvent {
     this.extrasPicture,
     this.packageName,
     this.title,
+    this.sender,
+    this.key,
+    this.tag,
+    this.channelId,
+    this.postTime,
     this.appIcon,
     this.largeIcon,
     this.content,
@@ -69,22 +71,44 @@ class ServiceNotificationEvent {
   });
 
   ServiceNotificationEvent.fromMap(Map<dynamic, dynamic> map) {
-    id = map['id'];
-    canReply = map['canReply'];
-    haveExtraPicture = map['haveExtraPicture'];
-    hasRemoved = map['hasRemoved'];
-    extrasPicture = map['notificationExtrasPicture'];
-    packageName = map['packageName'];
-    title = map['title'];
-    appIcon = map['appIcon'];
-    largeIcon = map['largeIcon'];
-    content = map['content'];
-    onGoing = map['onGoing'];
+    id = map['id'] is int ? map['id'] as int : int.tryParse('${map['id']}');
+    canReply = map['canReply'] == true;
+    haveExtraPicture = map['haveExtraPicture'] == true;
+    hasRemoved = map['hasRemoved'] == true;
+    extrasPicture = map['notificationExtrasPicture'] is Uint8List
+        ? map['notificationExtrasPicture'] as Uint8List
+        : null;
+    packageName = map['packageName']?.toString();
+    title = map['title']?.toString();
+    sender = map['sender']?.toString();
+    key = map['key']?.toString();
+    tag = map['tag']?.toString();
+    channelId = map['channelId']?.toString();
+    final rawPost = map['postTime'];
+    if (rawPost is int) {
+      postTime = rawPost;
+    } else if (rawPost != null) {
+      postTime = int.tryParse(rawPost.toString());
+    }
+    appIcon = map['appIcon'] is Uint8List ? map['appIcon'] as Uint8List : null;
+    largeIcon =
+        map['largeIcon'] is Uint8List ? map['largeIcon'] as Uint8List : null;
+    content = map['content']?.toString();
+    onGoing = map['onGoing'] == true;
+  }
+
+  /// Best display title: person/sender first, then notification title.
+  String get displayTitle {
+    final s = sender?.trim();
+    if (s != null && s.isNotEmpty) return s;
+    final t = title?.trim();
+    if (t != null && t.isNotEmpty) return t;
+    return 'No title';
   }
 
   /// send a direct message reply to the incoming notification
   Future<bool> sendReply(String message) async {
-    if (!canReply!) throw Exception("The notification is not replyable");
+    if (canReply != true) throw Exception("The notification is not replyable");
     try {
       return await methodeChannel.invokeMethod<bool>("sendReply", {
             'message': message,
@@ -100,9 +124,11 @@ class ServiceNotificationEvent {
   String toString() {
     return '''ServiceNotificationEvent(
       id: $id
+      key: $key
       can reply: $canReply
       packageName: $packageName
       title: $title
+      sender: $sender
       content: $content
       hasRemoved: $hasRemoved
       haveExtraPicture: $haveExtraPicture

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter_background_service/flutter_background_service.dart';
@@ -141,8 +140,15 @@ class BackgroundService {
       return false;
     }
 
-    String fingerprint(String packageName, String title, String text) =>
-        '$packageName|$title|$text';
+    String fingerprint(String packageName, String title, String text) {
+      final t = title.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+      final x = text
+          .trim()
+          .toLowerCase()
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .replaceAll(RegExp(r'\s*[\(（]\d+[\)）]\s*$'), '');
+      return '$packageName|$t|$x';
+    }
 
     Future<void> appendPending(Map<String, dynamic> json) async {
       try {
@@ -163,29 +169,26 @@ class BackgroundService {
       if (shouldSkip(event)) return;
 
       final packageName = event.packageName!;
-      final title =
-          (event.title ?? '').trim().isNotEmpty ? event.title!.trim() : 'No title';
+      final title = event.displayTitle;
       final content = (event.content ?? '').trim().isNotEmpty
           ? event.content!.trim()
           : 'No content';
 
-      final now = DateTime.now();
+      final nowMs = (event.postTime != null && event.postTime! > 0)
+          ? event.postTime!
+          : DateTime.now().millisecondsSinceEpoch;
+      final now = DateTime.fromMillisecondsSinceEpoch(nowMs);
       final fp = fingerprint(packageName, title, content);
       final lastAt = recentKeys[fp];
-      if (lastAt != null && now.millisecondsSinceEpoch - lastAt < dedupeMs) {
+      if (lastAt != null && nowMs - lastAt < dedupeMs) {
         return;
       }
-      recentKeys[fp] = now.millisecondsSinceEpoch;
+      recentKeys[fp] = nowMs;
 
       // Bound memory of dedupe map.
       if (recentKeys.length > 400) {
-        final cutoff = now.millisecondsSinceEpoch - 60 * 1000;
+        final cutoff = nowMs - 60 * 1000;
         recentKeys.removeWhere((_, ts) => ts < cutoff);
-      }
-
-      Uint8List? senderIcon = event.largeIcon;
-      if (senderIcon != null && senderIcon.length > 100 * 1024) {
-        senderIcon = null;
       }
 
       // Stable id from content — Android notif ids are reused; dual-listen won't double-save.
@@ -199,10 +202,13 @@ class BackgroundService {
         'title': title,
         'text': content,
         'timestamp': now.toIso8601String(),
+        'postTime': nowMs,
         'isRead': false,
         // Icons are large; UI/foreground path still gets them when alive.
         'senderIcon': null,
         'androidId': androidId,
+        'androidKey': event.key ?? '',
+        'count': 1,
       };
 
       // Always queue to disk so captures survive when UI isolate is dead.

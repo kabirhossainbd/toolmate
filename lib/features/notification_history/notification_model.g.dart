@@ -24,13 +24,15 @@ class NotificationModelAdapter extends TypeAdapter<NotificationModel> {
       timestamp: fields[4] as DateTime,
       senderIcon: fields[5] as Uint8List?,
       isRead: fields[6] as bool? ?? false,
+      count: fields[7] as int? ?? 1,
+      androidKey: fields[8] as String? ?? '',
     );
   }
 
   @override
   void write(BinaryWriter writer, NotificationModel obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -44,7 +46,11 @@ class NotificationModelAdapter extends TypeAdapter<NotificationModel> {
       ..writeByte(5)
       ..write(obj.senderIcon)
       ..writeByte(6)
-      ..write(obj.isRead);
+      ..write(obj.isRead)
+      ..writeByte(7)
+      ..write(obj.count)
+      ..writeByte(8)
+      ..write(obj.androidKey);
   }
 
   @override

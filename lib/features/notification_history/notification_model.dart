@@ -36,6 +36,34 @@ String safeInitial(String input, [String fallback = '?']) {
   return String.fromCharCodes(cleaned.runes.take(1)).toUpperCase();
 }
 
+/// Collapse whitespace / casing for stable grouping.
+String normalizeNotifText(String input) {
+  return sanitizeUtf16(input)
+      .trim()
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .toLowerCase();
+}
+
+/// Strip trailing “(2)” / “· 3 new” noise so stacked shade updates merge.
+String stripCountSuffix(String input) {
+  return input
+      .replaceAll(RegExp(r'\s*[\(（]\d+[\)）]\s*$'), '')
+      .replaceAll(RegExp(r'\s*[·•]\s*\d+\s*new\b.*$', caseSensitive: false), '')
+      .replaceAll(RegExp(r'\s+\d+\s+new messages?$', caseSensitive: false), '')
+      .trim();
+}
+
+/// Content fingerprint used to merge identical notifications.
+String notificationContentKey({
+  required String packageName,
+  required String title,
+  required String text,
+}) {
+  final t = stripCountSuffix(normalizeNotifText(title));
+  final x = stripCountSuffix(normalizeNotifText(text));
+  return '$packageName|$t|$x';
+}
+
 @HiveType(typeId: 4)
 class NotificationModel extends HiveObject {
   @HiveField(0)
@@ -45,20 +73,28 @@ class NotificationModel extends HiveObject {
   final String packageName;
 
   @HiveField(2)
-  final String title;
+  String title;
 
   @HiveField(3)
-  final String text;
+  String text;
 
   @HiveField(4)
-  final DateTime timestamp;
+  DateTime timestamp;
 
   /// Sender's profile photo (largeIcon from WhatsApp/Messenger notifications)
   @HiveField(5)
-  final Uint8List? senderIcon;
+  Uint8List? senderIcon;
 
   @HiveField(6, defaultValue: false)
   bool isRead;
+
+  /// How many identical notifications were merged into this row.
+  @HiveField(7, defaultValue: 1)
+  int count;
+
+  /// Android StatusBarNotification key when known (package|tag|id).
+  @HiveField(8, defaultValue: '')
+  String androidKey;
 
   NotificationModel({
     required this.id,
@@ -68,10 +104,21 @@ class NotificationModel extends HiveObject {
     required this.timestamp,
     this.senderIcon,
     this.isRead = false,
+    this.count = 1,
+    this.androidKey = '',
   })  : title = sanitizeUtf16(title),
         text = sanitizeUtf16(text);
 
-  String get senderName => title.isNotEmpty ? title : 'Unknown';
+  String get senderName {
+    final t = title.trim();
+    return t.isNotEmpty ? t : 'Unknown';
+  }
+
+  String get contentKey => notificationContentKey(
+        packageName: packageName,
+        title: title,
+        text: text,
+      );
 
   Map<String, dynamic> toJson() {
     return {
@@ -82,6 +129,8 @@ class NotificationModel extends HiveObject {
       'timestamp': timestamp.toIso8601String(),
       'senderIcon': senderIcon,
       'isRead': isRead,
+      'count': count,
+      'androidKey': androidKey,
     };
   }
 
@@ -94,6 +143,11 @@ class NotificationModel extends HiveObject {
       icon = Uint8List.fromList(List<int>.from(rawIcon));
     }
 
+    final rawCount = json['count'];
+    final count = rawCount is int
+        ? rawCount
+        : int.tryParse(rawCount?.toString() ?? '') ?? 1;
+
     return NotificationModel(
       id: json['id']?.toString() ?? '',
       packageName: json['packageName']?.toString() ?? '',
@@ -102,6 +156,10 @@ class NotificationModel extends HiveObject {
       timestamp: DateTime.parse(json['timestamp'].toString()),
       senderIcon: icon,
       isRead: json['isRead'] == true,
+      count: count < 1 ? 1 : count,
+      androidKey: json['androidKey']?.toString() ??
+          json['key']?.toString() ??
+          '',
     );
   }
 }

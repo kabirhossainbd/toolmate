@@ -1335,7 +1335,9 @@ class _AppNotificationsScreenState extends State<AppNotificationsScreen> {
                                         ),
                                         const SizedBox(height: 3),
                                         Text(
-                                          latest.text,
+                                          latest.count > 1
+                                              ? '×${latest.count} · ${latest.text}'
+                                              : latest.text,
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
@@ -2020,6 +2022,25 @@ class _ChatBubble extends StatelessWidget {
                               ),
                             ),
                           ),
+                          if (message.count > 1) ...[
+                            Container(
+                              margin: const EdgeInsets.only(right: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: appColor.withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '×${message.count}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: appColor,
+                                ),
+                              ),
+                            ),
+                          ],
                           Text(
                             DateFormat('hh:mm a').format(message.timestamp),
                             style: TextStyle(
@@ -2045,6 +2066,17 @@ class _ChatBubble extends StatelessWidget {
                           color: _NotifUi.muted(context, unread ? 0.88 : 0.7),
                         ),
                       ),
+                      if (message.count > 1) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Same notification · ${message.count} times',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: _NotifUi.muted(context, 0.45),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 6),
                       Row(
                         children: [

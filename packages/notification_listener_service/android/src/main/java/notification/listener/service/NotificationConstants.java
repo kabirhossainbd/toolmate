@@ -13,4 +13,9 @@ public final class NotificationConstants {
     public static String IS_REMOVED = "is_removed";
     public static String CAN_REPLY = "can_reply_to_it";
     public static String IS_ONGOING = "is_ongoing";
+    public static String KEY = "notification_key";
+    public static String TAG = "notification_tag";
+    public static String POST_TIME = "post_time";
+    public static String CHANNEL_ID = "channel_id";
+    public static String SENDER = "sender_name";
 }

@@ -15,6 +15,7 @@ import android.graphics.drawable.Icon;
 import android.os.Build;
 import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
+import android.os.Parcelable;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
@@ -100,6 +101,16 @@ public class NotificationListener extends NotificationListenerService {
             intent.putExtra(NotificationConstants.ID, notification.getId());
             intent.putExtra(NotificationConstants.CAN_REPLY, action != null);
             intent.putExtra(NotificationConstants.IS_ONGOING, isOngoing);
+            intent.putExtra(NotificationConstants.POST_TIME, notification.getPostTime());
+            if (notification.getTag() != null) {
+                intent.putExtra(NotificationConstants.TAG, notification.getTag());
+            }
+            if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+                intent.putExtra(NotificationConstants.KEY, notification.getKey());
+            }
+            if (Build.VERSION.SDK_INT >= VERSION_CODES.O && notif.getChannelId() != null) {
+                intent.putExtra(NotificationConstants.CHANNEL_ID, notif.getChannelId());
+            }
 
             if (action != null) {
                 cachedNotifications.put(notification.getId(), action);
@@ -115,16 +126,24 @@ public class NotificationListener extends NotificationListenerService {
 
             String title = null;
             String content = null;
+            String sender = null;
             if (extras != null) {
+                MessagingParts messaging = extractMessagingParts(extras);
+                sender = messaging.sender;
+                content = firstNonEmpty(messaging.text, extractBestContent(extras));
+                // Prefer real person name for chat apps; fall back to title extras.
                 title = firstNonEmpty(
-                        charSeq(extras.getCharSequence(Notification.EXTRA_TITLE)),
+                        sender,
                         charSeq(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)),
+                        charSeq(extras.getCharSequence(Notification.EXTRA_TITLE)),
                         charSeq(extras.getCharSequence(Notification.EXTRA_TITLE_BIG))
                 );
-                content = extractBestContent(extras);
 
                 intent.putExtra(NotificationConstants.NOTIFICATION_TITLE, title);
                 intent.putExtra(NotificationConstants.NOTIFICATION_CONTENT, content);
+                if (sender != null) {
+                    intent.putExtra(NotificationConstants.SENDER, sender);
+                }
                 intent.putExtra(NotificationConstants.IS_REMOVED, false);
 
                 boolean hasPicture = extras.containsKey(Notification.EXTRA_PICTURE);
@@ -200,29 +219,61 @@ public class NotificationListener extends NotificationListenerService {
         }
 
         // MessagingStyle: take the last message text when available.
+        MessagingParts messaging = extractMessagingParts(extras);
+        if (messaging.text != null && !messaging.text.isEmpty()) {
+            best = messaging.text;
+        }
+
+        return best;
+    }
+
+    private static final class MessagingParts {
+        final String sender;
+        final String text;
+
+        MessagingParts(String sender, String text) {
+            this.sender = sender;
+            this.text = text;
+        }
+    }
+
+    /**
+     * Pulls person name + last message from MessagingStyle EXTRA_MESSAGES.
+     */
+    @RequiresApi(api = VERSION_CODES.KITKAT)
+    private static MessagingParts extractMessagingParts(Bundle extras) {
+        String sender = null;
+        String text = null;
         try {
-            Object[] messages = null;
+            Object raw = null;
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                Object raw = extras.get(Notification.EXTRA_MESSAGES);
-                if (raw instanceof Object[]) {
-                    messages = (Object[]) raw;
-                }
+                raw = extras.get(Notification.EXTRA_MESSAGES);
+            }
+            Object[] messages = null;
+            if (raw instanceof Object[]) {
+                messages = (Object[]) raw;
+            } else if (raw instanceof Parcelable[]) {
+                Parcelable[] parcelables = (Parcelable[]) raw;
+                messages = new Object[parcelables.length];
+                System.arraycopy(parcelables, 0, messages, 0, parcelables.length);
             }
             if (messages != null && messages.length > 0) {
                 Object last = messages[messages.length - 1];
                 if (last instanceof Bundle) {
-                    CharSequence msgText = ((Bundle) last).getCharSequence("text");
-                    String msg = charSeq(msgText);
-                    if (msg != null && !msg.isEmpty()) {
-                        best = msg;
+                    Bundle msg = (Bundle) last;
+                    text = charSeq(msg.getCharSequence("text"));
+                    Object senderObj = msg.get("sender");
+                    if (senderObj instanceof CharSequence) {
+                        sender = charSeq((CharSequence) senderObj);
+                    } else if (senderObj instanceof Bundle) {
+                        sender = charSeq(((Bundle) senderObj).getCharSequence("name"));
                     }
                 }
             }
         } catch (Throwable e) {
             Log.d(TAG, "EXTRA_MESSAGES parse skipped: " + e.getMessage());
         }
-
-        return best;
+        return new MessagingParts(sender, text);
     }
 
 
@@ -320,17 +371,42 @@ public class NotificationListener extends NotificationListenerService {
             Notification notification = sbn.getNotification();
             Bundle extras = notification.extras;
 
+            if ((notification.flags & Notification.FLAG_GROUP_SUMMARY) != 0) {
+                continue;
+            }
+
+            MessagingParts messaging = extras != null
+                    ? extractMessagingParts(extras)
+                    : new MessagingParts(null, null);
+            String title = extras != null
+                    ? firstNonEmpty(
+                        messaging.sender,
+                        charSeq(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)),
+                        charSeq(extras.getCharSequence(Notification.EXTRA_TITLE)),
+                        charSeq(extras.getCharSequence(Notification.EXTRA_TITLE_BIG)))
+                    : null;
+            String content = extras != null
+                    ? firstNonEmpty(messaging.text, extractBestContent(extras))
+                    : null;
+
             notifData.put("id", sbn.getId());
             notifData.put("packageName", sbn.getPackageName());
-            notifData.put("title", extras.getCharSequence(Notification.EXTRA_TITLE) != null
-                    ? extras.getCharSequence(Notification.EXTRA_TITLE).toString()
-                    : null);
-            notifData.put("content", extras.getCharSequence(Notification.EXTRA_TEXT) != null
-                    ? extras.getCharSequence(Notification.EXTRA_TEXT).toString()
-                    : null);
+            notifData.put("title", title);
+            notifData.put("content", content);
+            notifData.put("sender", messaging.sender);
+            notifData.put("postTime", sbn.getPostTime());
+            if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+                notifData.put("key", sbn.getKey());
+            }
+            if (sbn.getTag() != null) {
+                notifData.put("tag", sbn.getTag());
+            }
             boolean isOngoing = (notification.flags & Notification.FLAG_ONGOING_EVENT) != 0;
             notifData.put("onGoing", isOngoing);
 
+            if ((title == null || title.isEmpty()) && (content == null || content.isEmpty())) {
+                continue;
+            }
             notificationList.add(notifData);
         }
         return notificationList;

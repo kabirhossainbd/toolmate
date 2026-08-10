@@ -27,6 +27,10 @@ public class NotificationReceiver extends BroadcastReceiver {
         String packageName = intent.getStringExtra(PACKAGE_NAME);
         String title = intent.getStringExtra(NOTIFICATION_TITLE);
         String content = intent.getStringExtra(NOTIFICATION_CONTENT);
+        String sender = intent.getStringExtra(SENDER);
+        String key = intent.getStringExtra(KEY);
+        String tag = intent.getStringExtra(TAG);
+        String channelId = intent.getStringExtra(CHANNEL_ID);
         byte[] notificationIcon = intent.getByteArrayExtra(NOTIFICATIONS_ICON);
         byte[] notificationExtrasPicture = intent.getByteArrayExtra(EXTRAS_PICTURE);
         byte[] largeIcon = intent.getByteArrayExtra(NOTIFICATIONS_LARGE_ICON);
@@ -35,6 +39,7 @@ public class NotificationReceiver extends BroadcastReceiver {
         boolean canReply = intent.getBooleanExtra(CAN_REPLY, false);
         boolean isOngoing = intent.getBooleanExtra(IS_ONGOING, false);
         int id = intent.getIntExtra(ID, -1);
+        long postTime = intent.getLongExtra(POST_TIME, 0L);
 
 
         HashMap<String, Object> data = new HashMap<>();
@@ -42,6 +47,11 @@ public class NotificationReceiver extends BroadcastReceiver {
         data.put("packageName", packageName);
         data.put("title", title);
         data.put("content", content);
+        data.put("sender", sender);
+        data.put("key", key);
+        data.put("tag", tag);
+        data.put("channelId", channelId);
+        data.put("postTime", postTime);
         data.put("notificationIcon", notificationIcon);
         data.put("notificationExtrasPicture", notificationExtrasPicture);
         data.put("haveExtraPicture", haveExtraPicture);
