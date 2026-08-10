@@ -10,8 +10,12 @@ import '../features/notes/notes_screen.dart';
 import '../features/notification_history/notification_history_controller.dart';
 import '../features/notification_history/notification_history_screen.dart';
 import '../features/splash/splash_screen.dart';
+import '../features/storage_analyzer/duplicate_files_screen.dart';
+import '../features/storage_analyzer/duplicate_images_screen.dart';
+import '../features/storage_analyzer/large_files_screen.dart';
 import '../features/storage_analyzer/storage_analyzer_controller.dart';
 import '../features/storage_analyzer/storage_analyzer_screen.dart';
+import '../features/storage_analyzer/storage_explorer_screen.dart';
 import '../features/unit_converter/unit_converter_controller.dart';
 import '../features/unit_converter/unit_converter_screen.dart';
 import '../features/user_profile/user_profile_controller.dart';
@@ -25,12 +29,19 @@ class AppPages {
   AppPages._();
 
   static const initial = Routes.splash;
-  static const _transition = Transition.cupertino;
-  static const _duration = Duration(milliseconds: 220);
+  /// Matches Flutter CupertinoPageRoute (~400ms) for native push/pop feel.
+  static const _transition = Transition.native;
+  static const _duration = Duration(milliseconds: 400);
 
   static void _ensureNotificationController() {
     if (!Get.isRegistered<NotificationHistoryController>()) {
       Get.put(NotificationHistoryController(), permanent: true);
+    }
+  }
+
+  static void _ensureStorageController() {
+    if (!Get.isRegistered<StorageAnalyzerController>()) {
+      Get.put(StorageAnalyzerController());
     }
   }
 
@@ -47,6 +58,9 @@ class AppPages {
       binding: bind == null ? null : BindingsBuilder(bind),
       transition: transition ?? _transition,
       transitionDuration: transitionDuration ?? _duration,
+      // iOS-style interactive edge swipe; Android still uses system back.
+      popGesture: true,
+      gestureWidth: (_) => 24,
     );
   }
 
@@ -71,9 +85,27 @@ class AppPages {
     _page(
       name: Routes.storageAnalyzer,
       page: () => const StorageAnalyzerScreen(),
-      bind: () {
-        Get.put(StorageAnalyzerController());
-      },
+      bind: _ensureStorageController,
+    ),
+    _page(
+      name: Routes.largeFiles,
+      page: () => const LargeFilesScreen(),
+      bind: _ensureStorageController,
+    ),
+    _page(
+      name: Routes.duplicateFiles,
+      page: () => const DuplicateFilesScreen(),
+      bind: _ensureStorageController,
+    ),
+    _page(
+      name: Routes.duplicateImages,
+      page: () => const DuplicateImagesScreen(),
+      bind: _ensureStorageController,
+    ),
+    _page(
+      name: Routes.storageExplorer,
+      page: () => const StorageExplorerScreen(),
+      bind: _ensureStorageController,
     ),
     _page(
       name: Routes.videoDownloader,

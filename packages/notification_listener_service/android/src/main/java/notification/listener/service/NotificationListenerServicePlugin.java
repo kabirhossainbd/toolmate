@@ -145,9 +145,9 @@ public class NotificationListenerServicePlugin implements FlutterPlugin, Activit
         } else {
             context.registerReceiver(notificationReceiver, intentFilter);
         }
-        Intent listenerIntent = new Intent(context, NotificationReceiver.class);
-        context.startService(listenerIntent);
-        Log.i(TAG, "Started the notifications tracking service.");
+        // NotificationReceiver is a BroadcastReceiver — do NOT startService it.
+        // registerReceiver above is enough to receive notification broadcasts.
+        Log.i(TAG, "Registered the notifications tracking receiver.");
     }
 
     @Override

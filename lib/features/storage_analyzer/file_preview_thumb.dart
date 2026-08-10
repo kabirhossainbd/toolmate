@@ -195,7 +195,10 @@ class _TypeIcon extends StatelessWidget {
 }
 
 /// Shared scan progress UI for storage tools.
-class StorageScanLoader extends StatelessWidget {
+///
+/// Layout height is locked so long filenames / status swaps never jump the
+/// column. Progress eases toward the latest percent for a smooth ring.
+class StorageScanLoader extends StatefulWidget {
   final double percent; // 0–100
   final bool indeterminate;
   final String title;
@@ -214,9 +217,73 @@ class StorageScanLoader extends StatelessWidget {
   });
 
   @override
+  State<StorageScanLoader> createState() => _StorageScanLoaderState();
+}
+
+class _StorageScanLoaderState extends State<StorageScanLoader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _progressCtrl;
+  late Animation<double> _progressAnim;
+  double _painted = 0; // 0–1
+
+  @override
+  void initState() {
+    super.initState();
+    _painted = (widget.percent / 100).clamp(0.0, 1.0);
+    _progressCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
+    _progressAnim = AlwaysStoppedAnimation(_painted);
+    _progressCtrl.addListener(() {
+      _painted = _progressAnim.value;
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant StorageScanLoader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.indeterminate) return;
+    final next = (widget.percent / 100).clamp(0.0, 1.0);
+    if ((next - _painted).abs() < 0.0005) return;
+    _animateTo(next);
+  }
+
+  void _animateTo(double target) {
+    final begin = _painted;
+    _progressAnim = Tween<double>(begin: begin, end: target).animate(
+      CurvedAnimation(parent: _progressCtrl, curve: Curves.easeOutCubic),
+    );
+    _progressCtrl
+      ..duration = Duration(
+        milliseconds: (280 + ((target - begin).abs() * 420)).round().clamp(280, 700),
+      )
+      ..forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _progressCtrl.dispose();
+    super.dispose();
+  }
+
+  String get _statusLabel {
+    final raw = widget.status.trim();
+    if (raw.isEmpty) return 'Please wait…';
+    // Prefer filename only when a path sneaks into status.
+    final base = raw.contains('/') ? raw.split('/').last : raw;
+    if (base.length <= 42) return base;
+    return '${base.substring(0, 39)}…';
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final value = indeterminate ? null : (percent / 100).clamp(0.0, 1.0);
+    final statusStyle = openSansRegular.copyWith(
+      fontSize: 13,
+      height: 1.25,
+      color: scheme.onSurface.withValues(alpha: 0.55),
+    );
 
     return Center(
       child: Padding(
@@ -225,51 +292,123 @@ class StorageScanLoader extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              width: 108,
-              height: 108,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 108,
-                    height: 108,
-                    child: CircularProgressIndicator(
-                      value: value,
-                      strokeWidth: 8,
-                      color: color,
-                      backgroundColor: color.withValues(alpha: 0.14),
+              width: 112,
+              height: 112,
+              child: widget.indeterminate
+                  ? Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SizedBox(
+                          width: 112,
+                          height: 112,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 7,
+                            strokeCap: StrokeCap.round,
+                            color: widget.color,
+                            backgroundColor:
+                                widget.color.withValues(alpha: 0.14),
+                          ),
+                        ),
+                        Text(
+                          '…',
+                          style: openSansBold.copyWith(fontSize: 22, height: 1),
+                        ),
+                      ],
+                    )
+                  : AnimatedBuilder(
+                      animation: _progressCtrl,
+                      builder: (context, _) {
+                        final value = _progressAnim.value.clamp(0.0, 1.0);
+                        final pct = (value * 100).round().clamp(0, 100);
+                        return Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            SizedBox(
+                              width: 112,
+                              height: 112,
+                              child: CircularProgressIndicator(
+                                value: value,
+                                strokeWidth: 7,
+                                strokeCap: StrokeCap.round,
+                                color: widget.color,
+                                backgroundColor:
+                                    widget.color.withValues(alpha: 0.14),
+                              ),
+                            ),
+                            Text(
+                              '$pct%',
+                              style: openSansBold.copyWith(
+                                fontSize: 22,
+                                height: 1,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
-                  ),
-                  Text(
-                    indeterminate ? '…' : '${percent.clamp(0, 100).toInt()}%',
-                    style: openSansBold.copyWith(fontSize: 22),
-                  ),
-                ],
-              ),
             ),
             const SizedBox(height: 22),
-            Text(title, style: openSansSemiBold.copyWith(fontSize: 16)),
-            const SizedBox(height: 8),
             Text(
-              status.isEmpty ? 'Please wait…' : status,
+              widget.title,
               textAlign: TextAlign.center,
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: openSansRegular.copyWith(
-                fontSize: 13,
-                color: scheme.onSurface.withValues(alpha: 0.55),
-              ),
+              style: openSansSemiBold.copyWith(fontSize: 16, height: 1.2),
             ),
-            if (filesScanned > 0) ...[
-              const SizedBox(height: 10),
-              Text(
-                '$filesScanned files checked',
-                style: openSansRegular.copyWith(
-                  fontSize: 12,
-                  color: color,
+            const SizedBox(height: 10),
+            // Fixed slot — filename length never changes column height.
+            SizedBox(
+              height: 18,
+              width: double.infinity,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (child, anim) {
+                  return FadeTransition(opacity: anim, child: child);
+                },
+                layoutBuilder: (current, previous) {
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: <Widget>[
+                      ...previous,
+                      if (current != null) current,
+                    ],
+                  );
+                },
+                child: Text(
+                  _statusLabel,
+                  key: ValueKey(_statusLabel),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: statusStyle,
+                  strutStyle: const StrutStyle(
+                    fontSize: 13,
+                    height: 1.25,
+                    forceStrutHeight: true,
+                  ),
                 ),
               ),
-            ],
+            ),
+            const SizedBox(height: 10),
+            // Always reserve the counter row so it cannot pop layout.
+            SizedBox(
+              height: 16,
+              child: AnimatedOpacity(
+                opacity: widget.filesScanned > 0 ? 1 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: Text(
+                  '${widget.filesScanned} files checked',
+                  style: openSansRegular.copyWith(
+                    fontSize: 12,
+                    height: 1.2,
+                    color: widget.color,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),

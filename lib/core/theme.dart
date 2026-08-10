@@ -8,6 +8,15 @@ class AppTheme {
   static const Color backgroundColorLight = Color(0xFFF4F7FB);
   static const Color backgroundColorDark = Color(0xFF0E1116);
 
+  /// Platform page transitions — used by GetX `Transition.native`.
+  static const pageTransitionsTheme = PageTransitionsTheme(
+    builders: {
+      TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+      TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+      TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+    },
+  );
+
   static ThemeData get lightTheme {
     final scheme = ColorScheme.fromSeed(
       seedColor: primaryColor,
@@ -21,6 +30,7 @@ class AppTheme {
       brightness: Brightness.light,
       fontFamily: 'Open_Sans',
       colorScheme: scheme,
+      pageTransitionsTheme: pageTransitionsTheme,
       scaffoldBackgroundColor: backgroundColorLight,
       textTheme: _textTheme,
       appBarTheme: AppBarTheme(
@@ -88,6 +98,7 @@ class AppTheme {
       brightness: Brightness.dark,
       fontFamily: 'Open_Sans',
       colorScheme: scheme,
+      pageTransitionsTheme: pageTransitionsTheme,
       scaffoldBackgroundColor: backgroundColorDark,
       textTheme: _textTheme.apply(
         bodyColor: Colors.white,

@@ -7,9 +7,18 @@ import '../../core/app_ui.dart';
 import '../../core/style.dart';
 import 'file_preview_thumb.dart';
 import 'storage_analyzer_controller.dart';
+import 'storage_tool_gate.dart';
 
-class DuplicateFilesScreen extends GetView<StorageAnalyzerController> {
+class DuplicateFilesScreen extends StatefulWidget {
   const DuplicateFilesScreen({super.key});
+
+  @override
+  State<DuplicateFilesScreen> createState() => _DuplicateFilesScreenState();
+}
+
+class _DuplicateFilesScreenState extends State<DuplicateFilesScreen> {
+  late final StorageAnalyzerController controller;
+  bool _bootstrapped = false;
 
   bool _isImage(String path) => FilePreviewThumb.isImage(path);
 
@@ -17,14 +26,53 @@ class DuplicateFilesScreen extends GetView<StorageAnalyzerController> {
       FilePreviewThumb.isImage(path) || FilePreviewThumb.isVideo(path);
 
   @override
-  Widget build(BuildContext context) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (controller.duplicateFilesList.isEmpty &&
-          !controller.isScanningDuplicates.value) {
-        controller.findAllDuplicateFiles();
-      }
-    });
+  void initState() {
+    super.initState();
+    controller = Get.find<StorageAnalyzerController>();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
 
+  @override
+  void dispose() {
+    controller.cancelDuplicateFilesScan();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    if (_bootstrapped || !mounted) return;
+    _bootstrapped = true;
+    await waitForRouteTransition(context);
+    if (!mounted) return;
+
+    final ok = await ensureStorageToolAccess(
+      title: 'Storage Access Required',
+      message:
+          'To find duplicate files, we need permission to scan your storage.',
+    );
+    if (!mounted) return;
+    if (!ok) {
+      Get.back();
+      return;
+    }
+
+    if (controller.duplicateFilesList.isEmpty &&
+        !controller.isScanningDuplicates.value) {
+      controller.findAllDuplicateFiles();
+    }
+  }
+
+  Future<void> _rescan() async {
+    final ok = await ensureStorageToolAccess(
+      title: 'Storage Access Required',
+      message:
+          'To find duplicate files, we need permission to scan your storage.',
+    );
+    if (!mounted || !ok) return;
+    controller.findAllDuplicateFiles();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -45,7 +93,7 @@ class DuplicateFilesScreen extends GetView<StorageAnalyzerController> {
             child: IconButton(
               tooltip: 'Rescan',
               icon: const Icon(Icons.refresh_rounded),
-              onPressed: () => controller.findAllDuplicateFiles(),
+              onPressed: _rescan,
             ),
           ),
         ],

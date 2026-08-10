@@ -8,19 +8,69 @@ import '../../core/app_ui.dart';
 import '../../core/style.dart';
 import 'file_preview_thumb.dart';
 import 'storage_analyzer_controller.dart';
+import 'storage_tool_gate.dart';
 
-class DuplicateImagesScreen extends GetView<StorageAnalyzerController> {
+class DuplicateImagesScreen extends StatefulWidget {
   const DuplicateImagesScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (controller.duplicateImages.isEmpty &&
-          !controller.isScanningImages.value) {
-        controller.findDuplicateImages();
-      }
-    });
+  State<DuplicateImagesScreen> createState() => _DuplicateImagesScreenState();
+}
 
+class _DuplicateImagesScreenState extends State<DuplicateImagesScreen> {
+  late final StorageAnalyzerController controller;
+  bool _bootstrapped = false;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = Get.find<StorageAnalyzerController>();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
+
+  @override
+  void dispose() {
+    controller.cancelDuplicateImagesScan();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    if (_bootstrapped || !mounted) return;
+    _bootstrapped = true;
+    await waitForRouteTransition(context);
+    if (!mounted) return;
+
+    final ok = await ensureStorageToolAccess(
+      title: 'Gallery Access Required',
+      message:
+          'To find duplicate images, we need permission to access your gallery.',
+      gallery: true,
+    );
+    if (!mounted) return;
+    if (!ok) {
+      Get.back();
+      return;
+    }
+
+    if (controller.duplicateImages.isEmpty &&
+        !controller.isScanningImages.value) {
+      controller.findDuplicateImages();
+    }
+  }
+
+  Future<void> _rescan() async {
+    final ok = await ensureStorageToolAccess(
+      title: 'Gallery Access Required',
+      message:
+          'To find duplicate images, we need permission to access your gallery.',
+      gallery: true,
+    );
+    if (!mounted || !ok) return;
+    controller.findDuplicateImages();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -41,7 +91,7 @@ class DuplicateImagesScreen extends GetView<StorageAnalyzerController> {
             child: IconButton(
               tooltip: 'Rescan',
               icon: const Icon(Icons.refresh_rounded),
-              onPressed: () => controller.findDuplicateImages(),
+              onPressed: _rescan,
             ),
           ),
         ],
@@ -200,6 +250,18 @@ class DuplicateImagesScreen extends GetView<StorageAnalyzerController> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      if ((asset.relativePath ?? '').trim().isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          asset.relativePath!,
+                          style: openSansRegular.copyWith(
+                            fontSize: 12,
+                            color: scheme.onSurface.withValues(alpha: 0.5),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                       const SizedBox(height: 4),
                       Text(
                         '$sizeLabel · $dateLabel',
@@ -397,6 +459,12 @@ class _ImageCopyTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = (asset.title ?? 'Photo').trim();
     final shortName = title.isEmpty ? 'Photo' : title;
+    final folder = (asset.relativePath ?? '')
+        .replaceAll(RegExp(r'^/+|/+$'), '')
+        .split('/')
+        .where((s) => s.isNotEmpty)
+        .lastOrNull;
+    final subtitle = folder == null || folder.isEmpty ? shortName : '$folder/$shortName';
 
     // Rigid square — name is overlay inside the image so long text
     // cannot change layout height (no blink / jump).
@@ -488,7 +556,7 @@ class _ImageCopyTile extends StatelessWidget {
                       ),
                     ),
                     child: Text(
-                      shortName,
+                      subtitle,
                       maxLines: 1,
                       softWrap: false,
                       overflow: TextOverflow.ellipsis,

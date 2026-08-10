@@ -1,15 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:photo_manager/photo_manager.dart';
-import 'storage_analyzer_controller.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'duplicate_images_screen.dart';
-import 'large_files_screen.dart';
-import 'duplicate_files_screen.dart';
-import 'storage_explorer_screen.dart';
-import 'package:permission_handler/permission_handler.dart';
+
 import '../../core/app_ui.dart';
 import '../../core/style.dart';
+import '../../routes/app_routes.dart';
+import 'storage_analyzer_controller.dart';
 
 class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
   const StorageAnalyzerScreen({super.key});
@@ -346,13 +342,8 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
           color: Colors.blue,
           title: 'Large Files',
           subtitle: Obx(() => Text('${controller.largeFiles.length} files > 10MB')),
-          onTap: () => _handleToolNavigation(
-            context,
-            permission: Permission.manageExternalStorage,
-            title: 'Storage Access Required',
-            message: 'To find large files, we need permission to scan your storage.',
-            onConfirm: () => Get.to(() => const LargeFilesScreen()),
-          ),
+          // Navigate first — permission / scan happen on the destination screen.
+          onTap: () => Get.toNamed(Routes.largeFiles),
         ),
         const SizedBox(height: 12),
         _buildToolTile(
@@ -361,13 +352,7 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
           color: Colors.purple,
           title: 'Duplicate Files',
           subtitle: Obx(() => Text('${controller.duplicateFilesList.length} duplicate groups')),
-          onTap: () => _handleToolNavigation(
-            context,
-            permission: Permission.manageExternalStorage,
-            title: 'Storage Access Required',
-            message: 'To find duplicate files, we need permission to scan your storage.',
-            onConfirm: () => Get.to(() => const DuplicateFilesScreen()),
-          ),
+          onTap: () => Get.toNamed(Routes.duplicateFiles),
         ),
         const SizedBox(height: 12),
         _buildToolTile(
@@ -376,14 +361,7 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
           color: Colors.green,
           title: 'Duplicate Images',
           subtitle: Obx(() => Text('${controller.duplicateImages.length} image groups')),
-          onTap: () => _handleToolNavigation(
-            context,
-            permission: Permission.photos,
-            title: 'Gallery Access Required',
-            message: 'To find duplicate images, we need permission to access your gallery.',
-            onConfirm: () => Get.to(() => const DuplicateImagesScreen()),
-            isGallery: true,
-          ),
+          onTap: () => Get.toNamed(Routes.duplicateImages),
         ),
         const SizedBox(height: 12),
         _buildToolTile(
@@ -392,13 +370,7 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
           color: Colors.amber,
           title: 'Storage Explorer',
           subtitle: const Text('Analyze folder sizes'),
-          onTap: () => _handleToolNavigation(
-            context,
-            permission: Permission.manageExternalStorage,
-            title: 'Storage Access Required',
-            message: 'To analyze folders, we need permission to scan your storage.',
-            onConfirm: () => Get.to(() => const StorageExplorerScreen()),
-          ),
+          onTap: () => Get.toNamed(Routes.storageExplorer),
         ),
         const SizedBox(height: 12),
         _buildToolTile(
@@ -410,104 +382,6 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
           onTap: () {},
         ),
       ],
-    );
-  }
-
-  void _handleToolNavigation(
-    BuildContext context, {
-    required dynamic permission,
-    required String title,
-    required String message,
-    required VoidCallback onConfirm,
-    bool isGallery = false,
-  }) async {
-    bool isGranted = false;
-    if (isGallery) {
-      final status = await PhotoManager.requestPermissionExtend();
-      isGranted = status.isAuth;
-    } else {
-      isGranted = await (permission as Permission).isGranted;
-    }
-
-    if (isGranted) {
-      onConfirm();
-      return;
-    }
-
-    Get.dialog(
-      Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: (isGallery ? Colors.green : Colors.blue).withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  isGallery ? Icons.photo_library_rounded : Icons.folder_shared_rounded,
-                  color: isGallery ? Colors.green : Colors.blue,
-                  size: 40,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
-              ),
-              const SizedBox(height: 32),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Get.back(),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Not Now'),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        Get.back();
-                        if (isGallery) {
-                          final status = await PhotoManager.requestPermissionExtend();
-                          if (status.isAuth) onConfirm();
-                        } else {
-                          final status = await (permission as Permission).request();
-                          if (status.isGranted) onConfirm();
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isGallery ? Colors.green : Colors.blue,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Grant Access'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 

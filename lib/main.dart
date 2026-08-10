@@ -69,6 +69,8 @@ class MyApp extends StatelessWidget {
         translations: AppTranslations(),
         locale: settings.locale,
         fallbackLocale: const Locale('en', 'US'),
+        defaultTransition: Transition.native,
+        transitionDuration: const Duration(milliseconds: 400),
         initialRoute: AppPages.initial,
         getPages: AppPages.routes,
       ),

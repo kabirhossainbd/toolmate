@@ -7,19 +7,67 @@ import '../../core/app_ui.dart';
 import '../../core/style.dart';
 import 'file_preview_thumb.dart';
 import 'storage_analyzer_controller.dart';
+import 'storage_tool_gate.dart';
 
-class LargeFilesScreen extends GetView<StorageAnalyzerController> {
+class LargeFilesScreen extends StatefulWidget {
   const LargeFilesScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (controller.largeFiles.isEmpty &&
-          !controller.isScanningLargeFiles.value) {
-        controller.scanLargeFiles();
-      }
-    });
+  State<LargeFilesScreen> createState() => _LargeFilesScreenState();
+}
 
+class _LargeFilesScreenState extends State<LargeFilesScreen> {
+  late final StorageAnalyzerController controller;
+  bool _bootstrapped = false;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = Get.find<StorageAnalyzerController>();
+    // First paint the route, then permission + scan (never block Get.toNamed).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
+
+  @override
+  void dispose() {
+    controller.cancelLargeFilesScan();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    if (_bootstrapped || !mounted) return;
+    _bootstrapped = true;
+
+    await waitForRouteTransition(context);
+    if (!mounted) return;
+
+    final ok = await ensureStorageToolAccess(
+      title: 'Storage Access Required',
+      message: 'To find large files, we need permission to scan your storage.',
+    );
+    if (!mounted) return;
+    if (!ok) {
+      Get.back();
+      return;
+    }
+
+    if (controller.largeFiles.isEmpty &&
+        !controller.isScanningLargeFiles.value) {
+      controller.scanLargeFiles();
+    }
+  }
+
+  Future<void> _rescan() async {
+    final ok = await ensureStorageToolAccess(
+      title: 'Storage Access Required',
+      message: 'To find large files, we need permission to scan your storage.',
+    );
+    if (!mounted || !ok) return;
+    controller.scanLargeFiles();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -38,7 +86,7 @@ class LargeFilesScreen extends GetView<StorageAnalyzerController> {
             padding: const EdgeInsets.only(right: 8),
             child: IconButton(
               tooltip: 'Rescan',
-              onPressed: () => controller.scanLargeFiles(),
+              onPressed: _rescan,
               icon: const Icon(Icons.refresh_rounded),
             ),
           ),
@@ -94,11 +142,10 @@ class LargeFilesScreen extends GetView<StorageAnalyzerController> {
             separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final file = controller.largeFiles[index];
+              final size = controller.largeFileSizes[file.path] ?? 0;
               return _LargeFileTile(
                 file: file,
-                sizeLabel: controller.formatSize(
-                  file.existsSync() ? file.lengthSync() : 0,
-                ),
+                sizeLabel: controller.formatSize(size),
                 folderLabel: _folderName(file.path),
                 onPreview: () => _openPreview(context, file),
                 onDelete: () => _confirmDelete(context, file),
@@ -119,9 +166,7 @@ class LargeFilesScreen extends GetView<StorageAnalyzerController> {
   Future<void> _openPreview(BuildContext context, File file) async {
     final scheme = Theme.of(context).colorScheme;
     final name = file.path.split('/').last;
-    final size = file.existsSync()
-        ? controller.formatSize(file.lengthSync())
-        : '—';
+    final size = controller.formatSize(controller.largeFileSizes[file.path] ?? 0);
     final isImage = FilePreviewThumb.isImage(file.path);
     final isVideo = FilePreviewThumb.isVideo(file.path);
 
@@ -190,9 +235,8 @@ class LargeFilesScreen extends GetView<StorageAnalyzerController> {
   Future<void> _confirmDelete(BuildContext context, File file) async {
     final scheme = Theme.of(context).colorScheme;
     final name = file.path.split('/').last;
-    final size = file.existsSync()
-        ? controller.formatSize(file.lengthSync())
-        : '—';
+    final size =
+        controller.formatSize(controller.largeFileSizes[file.path] ?? 0);
 
     final ok = await showModalBottomSheet<bool>(
       context: context,
@@ -269,6 +313,7 @@ class LargeFilesScreen extends GetView<StorageAnalyzerController> {
     try {
       await controller.deleteFile(file);
       controller.largeFiles.removeWhere((f) => f.path == file.path);
+      controller.largeFileSizes.remove(file.path);
       Get.snackbar(
         'Deleted',
         'File removed',
