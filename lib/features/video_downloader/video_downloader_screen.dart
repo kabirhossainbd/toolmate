@@ -6,6 +6,7 @@ import '../../core/style.dart';
 import 'social_media_service.dart';
 import 'video_downloader_controller.dart';
 import 'video_model.dart';
+import 'package:video_player/video_player.dart';
 
 // ─── Brand colors (constant) ──────────────────────────────────────────────────
 const _kBlue = AppUi.brandDeep;
@@ -160,8 +161,10 @@ class _InsertLinkTab extends StatelessWidget {
                     Expanded(
                       child: TextField(
                         controller: controller.textEditingController,
-                        onChanged: (val) =>
-                            controller.urlController.value = val,
+                        onChanged: (val) {
+                          controller.urlController.value = val;
+                          controller.updatePlatformFromUrl(val);
+                        },
                         style: TextStyle(
                             color: isDark ? Colors.white : Colors.black87),
                         decoration: InputDecoration(
@@ -211,7 +214,7 @@ class _InsertLinkTab extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                _SupportedPlatformsRow(),
+                _SupportedPlatformsRow(controller: controller),
                 const SizedBox(height: 14),
 
                 // Download button
@@ -539,39 +542,97 @@ class _InsertLinkTab extends StatelessWidget {
   }
 }
 
-class _SupportedPlatformsRow extends StatelessWidget {
+class _SupportedPlatformsRow extends StatefulWidget {
+  final VideoDownloaderController controller;
+  const _SupportedPlatformsRow({required this.controller});
+
+  @override
+  State<_SupportedPlatformsRow> createState() => _SupportedPlatformsRowState();
+}
+
+class _SupportedPlatformsRowState extends State<_SupportedPlatformsRow> {
+  late final List<GlobalKey> _itemKeys;
+  int? _lastScrolledIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _itemKeys = List.generate(
+      SocialMediaService.supportedPlatforms.length,
+      (_) => GlobalKey(),
+    );
+    ever(widget.controller.detectedPlatformIndex, _onPlatformIndexChanged);
+  }
+
+  void _onPlatformIndexChanged(int index) {
+    if (index < 0) {
+      _lastScrolledIndex = null;
+      return;
+    }
+    if (index == _lastScrolledIndex) return;
+    _lastScrolledIndex = index;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _itemKeys[index].currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final platforms = SocialMediaService.supportedPlatforms;
-    return SizedBox(
-      height: 32,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: platforms.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 6),
-        itemBuilder: (_, i) {
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF2C2C2E) : Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isDark ? Colors.white12 : Colors.grey.shade300,
+
+    return Obx(() {
+      final selectedIndex = widget.controller.detectedPlatformIndex.value;
+
+      return SizedBox(
+        height: 32,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: platforms.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 6),
+          itemBuilder: (_, i) {
+            final isSelected = i == selectedIndex;
+            return Container(
+              key: _itemKeys[i],
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? _kBlue.withValues(alpha: isDark ? 0.22 : 0.1)
+                    : (isDark
+                        ? const Color(0xFF2C2C2E)
+                        : Colors.grey.shade100),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isSelected
+                      ? _kBlue
+                      : (isDark ? Colors.white12 : Colors.grey.shade300),
+                  width: isSelected ? 1.5 : 1,
+                ),
               ),
-            ),
-            child: Text(
-              platforms[i],
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: isDark ? Colors.grey.shade300 : Colors.black54,
+              child: Text(
+                platforms[i],
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                  color: isSelected
+                      ? _kBlue
+                      : (isDark ? Colors.grey.shade300 : Colors.black54),
+                ),
               ),
-            ),
-          );
-        },
-      ),
-    );
+            );
+          },
+        ),
+      );
+    });
   }
 }
 
@@ -624,29 +685,22 @@ class _MediaPickerStrip extends StatelessWidget {
                             cacheWidth: 160,
                             cacheHeight: 160,
                             filterQuality: FilterQuality.low,
-                            errorBuilder: (_, _, _) => ColoredBox(
-                              color: isDark
-                                  ? Colors.grey.shade800
-                                  : Colors.grey.shade300,
-                              child: Icon(
-                                item.kind == MediaKind.video
-                                    ? Icons.videocam
-                                    : Icons.image,
-                                color: Colors.white70,
-                              ),
+                            errorBuilder: (_, _, _) => _videoOrImageFallback(
+                              context: context,
+                              isDark: isDark,
+                              kind: item.kind,
                             ),
                           )
-                        : ColoredBox(
-                            color: isDark
-                                ? Colors.grey.shade800
-                                : Colors.grey.shade300,
-                            child: Icon(
-                              item.kind == MediaKind.video
-                                  ? Icons.videocam
-                                  : Icons.image,
-                              color: Colors.white70,
-                            ),
-                          ),
+                        : (item.kind == MediaKind.video && isSelected)
+                            ? _VideoThumb(
+                                url: item.downloadUrl,
+                                isDark: isDark,
+                              )
+                            : _videoOrImageFallback(
+                                context: context,
+                                isDark: isDark,
+                                kind: item.kind,
+                              ),
                     Positioned(
                       right: 4,
                       bottom: 4,
@@ -671,6 +725,81 @@ class _MediaPickerStrip extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+Widget _videoOrImageFallback({
+  required BuildContext context,
+  required bool isDark,
+  required MediaKind kind,
+}) {
+  return ColoredBox(
+    color: isDark ? Colors.grey.shade800 : Colors.grey.shade300,
+    child: Icon(
+      kind == MediaKind.video ? Icons.videocam : Icons.image,
+      color: Colors.white70,
+    ),
+  );
+}
+
+class _VideoThumb extends StatefulWidget {
+  final String url;
+  final bool isDark;
+
+  const _VideoThumb({
+    required this.url,
+    required this.isDark,
+  });
+
+  @override
+  State<_VideoThumb> createState() => _VideoThumbState();
+}
+
+class _VideoThumbState extends State<_VideoThumb> {
+  late final VideoPlayerController _controller;
+  late final Future<void> _initFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.network(widget.url);
+    _initFuture = _controller.initialize().then((_) async {
+      // Don't autoplay; just show the first available frame.
+      await _controller.pause();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<void>(
+      future: _initFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done ||
+            !_controller.value.isInitialized) {
+          return _videoOrImageFallback(
+            context: context,
+            isDark: widget.isDark,
+            kind: MediaKind.video,
+          );
+        }
+
+        // Show the video frame (at time=0) as a thumbnail.
+        return FittedBox(
+          fit: BoxFit.cover,
+          child: SizedBox(
+            width: double.infinity,
+            height: double.infinity,
+            child: VideoPlayer(_controller),
+          ),
+        );
+      },
     );
   }
 }

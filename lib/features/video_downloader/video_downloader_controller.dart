@@ -40,6 +40,19 @@ class VideoDownloaderController extends GetxController
 
   List<String> get supportedPlatforms => SocialMediaService.supportedPlatforms;
 
+  /// Index into [supportedPlatforms] for the URL in the input field (-1 = none).
+  final detectedPlatformIndex = (-1).obs;
+
+  void updatePlatformFromUrl(String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) {
+      detectedPlatformIndex.value = -1;
+      return;
+    }
+    final platform = _social.detectPlatform(trimmed);
+    detectedPlatformIndex.value = supportedPlatforms.indexOf(platform);
+  }
+
   @override
   void onInit() {
     super.onInit();
@@ -64,6 +77,7 @@ class VideoDownloaderController extends GetxController
     if (data != null && data.text != null && data.text!.isNotEmpty) {
       textEditingController.text = data.text!;
       urlController.value = data.text!;
+      updatePlatformFromUrl(data.text!);
     } else {
       Get.snackbar('Clipboard', 'No text found in clipboard');
     }

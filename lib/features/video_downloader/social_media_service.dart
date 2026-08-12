@@ -117,6 +117,25 @@ class SocialMediaService {
       // Fall through to Cobalt if explode fails.
     }
 
+    // TikTok: try public TikWM-style extractor first (no Cobalt auth needed).
+    if (platform == 'TikTok') {
+      final tt = await _resolveTikTok(trimmed);
+      if (tt.isSuccess) return tt;
+      // Fall through to Cobalt if it fails.
+    }
+
+    // Facebook: try legacy v7 endpoint first (handles share/v and share/r links).
+    if (platform == 'Facebook') {
+      final fb = await _resolveV7Fallback(trimmed, platform);
+      if (fb != null && fb.isSuccess) return fb;
+    }
+
+    // Best-effort fallback for other platforms.
+    if (platform != 'YouTube' && platform != 'Facebook') {
+      final v7 = await _resolveV7Fallback(trimmed, platform);
+      if (v7 != null && v7.isSuccess) return v7;
+    }
+
     // Twitter/X: try FixTweet-style API first.
     if (platform == 'X / Twitter') {
       final tw = await _resolveTwitter(trimmed);
@@ -292,6 +311,144 @@ class SocialMediaService {
       }
     }
     return const MediaResolveResult(items: []);
+  }
+
+  Future<MediaResolveResult> _resolveTikTok(String url) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        'https://tikwm.com/api/',
+        queryParameters: {
+          'url': url,
+          // Prefer highest quality when available.
+          'hd': '1',
+        },
+        options: Options(
+          responseType: ResponseType.json,
+          headers: const {
+            'Accept': 'application/json',
+            'User-Agent':
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+          receiveTimeout: const Duration(seconds: 25),
+          sendTimeout: const Duration(seconds: 15),
+          validateStatus: (s) => s != null && s < 500,
+        ),
+      );
+
+      final data = res.data;
+      if (data == null) return const MediaResolveResult(items: []);
+      if (data['code']?.toString() != '0') return const MediaResolveResult(items: []);
+
+      final payload = (data['data'] is Map) ? data['data'] as Map : null;
+      if (payload == null) return const MediaResolveResult(items: []);
+
+      final downloadUrl =
+          payload['hdplay']?.toString().isNotEmpty == true
+              ? payload['hdplay'].toString()
+              : payload['play']?.toString();
+      if (downloadUrl == null || downloadUrl.isEmpty) {
+        return const MediaResolveResult(items: []);
+      }
+
+      final title = payload['title']?.toString().trim();
+      final cover = payload['cover']?.toString() ?? '';
+      final id = payload['id']?.toString() ?? '';
+
+      final fileBase = title != null && title.isNotEmpty
+          ? title
+          : (id.isNotEmpty ? 'tiktok_$id' : 'tiktok');
+      final safeName = fileBase
+          .replaceAll(RegExp(r'[^\w\s.\-]'), '_')
+          .replaceAll(RegExp(r'\s+'), '_')
+          .trim();
+
+      final filename = safeName.endsWith('.mp4')
+          ? safeName
+          : '${safeName}_${downloadUrl.split('/').last.split('?').first}.mp4';
+
+      return MediaResolveResult(
+        items: [
+          ResolvedMedia(
+            sourceUrl: url,
+            downloadUrl: downloadUrl,
+            title: title != null && title.isNotEmpty ? title : 'TikTok video',
+            thumbnailUrl: cover,
+            filename: filename,
+            kind: MediaKind.video,
+            platform: 'TikTok',
+          ),
+        ],
+      );
+    } on DioException {
+      return const MediaResolveResult(items: []);
+    } catch (_) {
+      return const MediaResolveResult(items: []);
+    }
+  }
+
+  /// Tries a legacy/non-auth Cobalt v7-compatible endpoint.
+  ///
+  /// Returns a successful result on `stream`/`redirect`, otherwise `null` so
+  /// other providers (e.g. Cobalt v10) can be tried.
+  Future<MediaResolveResult?> _resolveV7Fallback(
+    String url,
+    String platform,
+  ) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        'https://downloadapi.stuff.solutions/api/json',
+        data: {
+          'url': url,
+          'vQuality': '1080',
+        },
+        options: Options(
+          responseType: ResponseType.json,
+          headers: const {
+            // Must be exactly this — broader Accept values are rejected.
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent':
+                'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          },
+          receiveTimeout: const Duration(seconds: 25),
+          sendTimeout: const Duration(seconds: 15),
+          validateStatus: (s) => s != null && s < 500,
+        ),
+      );
+
+      final data = res.data;
+      if (data == null) return null;
+
+      final status = data['status']?.toString();
+      if (status == 'stream' || status == 'redirect') {
+        final downloadUrl = data['url']?.toString() ?? '';
+        if (downloadUrl.isEmpty) return null;
+
+        final ext = downloadUrl.toLowerCase().contains('.mp4') ? 'mp4' : 'mp4';
+        final filename =
+            '${platform.toLowerCase().replaceAll(' ', '_')}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+
+        return MediaResolveResult(
+          items: [
+            ResolvedMedia(
+              sourceUrl: url,
+              downloadUrl: downloadUrl,
+              title: '$platform video',
+              thumbnailUrl: '',
+              filename: filename,
+              kind: MediaKind.video,
+              platform: platform,
+            ),
+          ],
+        );
+      }
+
+      return null;
+    } on DioException {
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<MediaResolveResult> _resolveCobalt(String url, String platform) async {
