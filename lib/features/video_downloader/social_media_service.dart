@@ -351,7 +351,11 @@ class SocialMediaService {
       }
 
       final title = payload['title']?.toString().trim();
-      final cover = payload['cover']?.toString() ?? '';
+      final cover = (payload['cover'] ??
+                  payload['origin_cover'] ??
+                  payload['ai_dynamic_cover'] ??
+                  '')
+              .toString();
       final id = payload['id']?.toString() ?? '';
 
       final fileBase = title != null && title.isNotEmpty
@@ -428,13 +432,22 @@ class SocialMediaService {
         final filename =
             '${platform.toLowerCase().replaceAll(' ', '_')}_${DateTime.now().millisecondsSinceEpoch}.$ext';
 
+        // Some v7 relays include a poster; otherwise leave empty and let UI
+        // generate a still frame from [downloadUrl].
+        final thumb = (data['thumbnail'] ??
+                data['thumb'] ??
+                data['image'] ??
+                data['poster'] ??
+                '')
+            .toString();
+
         return MediaResolveResult(
           items: [
             ResolvedMedia(
               sourceUrl: url,
               downloadUrl: downloadUrl,
               title: '$platform video',
-              thumbnailUrl: '',
+              thumbnailUrl: thumb,
               filename: filename,
               kind: MediaKind.video,
               platform: platform,
@@ -553,13 +566,21 @@ class SocialMediaService {
           final title = filename.contains('.')
               ? filename.substring(0, filename.lastIndexOf('.'))
               : filename;
+          final thumb = (data['thumbnail'] ??
+                  data['thumb'] ??
+                  data['image'] ??
+                  data['poster'] ??
+                  '')
+              .toString();
           return MediaResolveResult(
             items: [
               ResolvedMedia(
                 sourceUrl: url,
                 downloadUrl: dl,
                 title: title.replaceAll('_', ' '),
-                thumbnailUrl: kind == MediaKind.image || kind == MediaKind.gif ? dl : '',
+                thumbnailUrl: thumb.isNotEmpty
+                    ? thumb
+                    : (kind == MediaKind.image || kind == MediaKind.gif ? dl : ''),
                 filename: filename,
                 kind: kind,
                 platform: platform,

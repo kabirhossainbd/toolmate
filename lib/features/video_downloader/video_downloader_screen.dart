@@ -1,12 +1,15 @@
 import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
+
 import '../../core/app_ui.dart';
 import '../../core/style.dart';
 import 'social_media_service.dart';
 import 'video_downloader_controller.dart';
 import 'video_model.dart';
-import 'package:video_player/video_player.dart';
 
 // ─── Brand colors (constant) ──────────────────────────────────────────────────
 const _kBlue = AppUi.brandDeep;
@@ -352,19 +355,16 @@ class _InsertLinkTab extends StatelessWidget {
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            video.thumbnailUrl.isNotEmpty
-                                ? Image.network(
-                                    video.thumbnailUrl,
-                                    height: 180,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                    cacheWidth: 720,
-                                    cacheHeight: 360,
-                                    filterQuality: FilterQuality.low,
-                                    errorBuilder: (ctx, err, _) =>
-                                        _videoPlaceholder(isImage: isImage),
-                                  )
-                                : _videoPlaceholder(isImage: isImage),
+                            SizedBox(
+                              height: 180,
+                              width: double.infinity,
+                              child: _PreviewThumb(
+                                thumbnailUrl: video.thumbnailUrl,
+                                downloadUrl: selected?.downloadUrl ?? '',
+                                isImage: isImage,
+                                isDark: isDark,
+                              ),
+                            ),
                             if (!isImage)
                               Container(
                                 width: 52,
@@ -525,21 +525,6 @@ class _InsertLinkTab extends StatelessWidget {
       ),
     );
   }
-
-  Widget _videoPlaceholder({bool isImage = false}) {
-    return Container(
-      height: 180,
-      color: Colors.grey.shade800,
-      child: Center(
-        child: Icon(
-            isImage
-                ? Icons.image_outlined
-                : Icons.play_circle_outline_rounded,
-            color: Colors.white70,
-            size: 60),
-      ),
-    );
-  }
 }
 
 class _SupportedPlatformsRow extends StatefulWidget {
@@ -685,14 +670,20 @@ class _MediaPickerStrip extends StatelessWidget {
                             cacheWidth: 160,
                             cacheHeight: 160,
                             filterQuality: FilterQuality.low,
-                            errorBuilder: (_, _, _) => _videoOrImageFallback(
-                              context: context,
-                              isDark: isDark,
-                              kind: item.kind,
-                            ),
+                            errorBuilder: (_, _, _) =>
+                                item.kind == MediaKind.video
+                                    ? _VideoFrameThumb(
+                                        url: item.downloadUrl,
+                                        isDark: isDark,
+                                      )
+                                    : _videoOrImageFallback(
+                                        context: context,
+                                        isDark: isDark,
+                                        kind: item.kind,
+                                      ),
                           )
-                        : (item.kind == MediaKind.video && isSelected)
-                            ? _VideoThumb(
+                        : item.kind == MediaKind.video
+                            ? _VideoFrameThumb(
                                 url: item.downloadUrl,
                                 isDark: isDark,
                               )
@@ -743,63 +734,157 @@ Widget _videoOrImageFallback({
   );
 }
 
-class _VideoThumb extends StatefulWidget {
+/// Preview image: network cover when available, otherwise first video frame.
+class _PreviewThumb extends StatelessWidget {
+  final String thumbnailUrl;
+  final String downloadUrl;
+  final bool isImage;
+  final bool isDark;
+
+  const _PreviewThumb({
+    required this.thumbnailUrl,
+    required this.downloadUrl,
+    required this.isImage,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (thumbnailUrl.isNotEmpty) {
+      return Image.network(
+        thumbnailUrl,
+        height: 180,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        cacheWidth: 720,
+        cacheHeight: 360,
+        filterQuality: FilterQuality.low,
+        errorBuilder: (_, _, _) {
+          if (!isImage && downloadUrl.isNotEmpty) {
+            return _VideoFrameThumb(url: downloadUrl, isDark: isDark);
+          }
+          return _videoPlaceholder(isImage: isImage);
+        },
+      );
+    }
+    if (!isImage && downloadUrl.isNotEmpty) {
+      return _VideoFrameThumb(url: downloadUrl, isDark: isDark);
+    }
+    return _videoPlaceholder(isImage: isImage);
+  }
+}
+
+Widget _videoPlaceholder({bool isImage = false}) {
+  return ColoredBox(
+    color: Colors.grey.shade800,
+    child: Center(
+      child: Icon(
+        isImage ? Icons.image_outlined : Icons.play_circle_outline_rounded,
+        color: Colors.white70,
+        size: 60,
+      ),
+    ),
+  );
+}
+
+/// Still frame extracted from a remote/local video URL.
+class _VideoFrameThumb extends StatefulWidget {
   final String url;
   final bool isDark;
 
-  const _VideoThumb({
+  const _VideoFrameThumb({
     required this.url,
     required this.isDark,
   });
 
   @override
-  State<_VideoThumb> createState() => _VideoThumbState();
+  State<_VideoFrameThumb> createState() => _VideoFrameThumbState();
 }
 
-class _VideoThumbState extends State<_VideoThumb> {
-  late final VideoPlayerController _controller;
-  late final Future<void> _initFuture;
+class _VideoFrameThumbState extends State<_VideoFrameThumb> {
+  static final _cache = <String, Uint8List?>{};
+  Uint8List? _bytes;
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.network(widget.url);
-    _initFuture = _controller.initialize().then((_) async {
-      // Don't autoplay; just show the first available frame.
-      await _controller.pause();
-    });
+    _load();
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  void didUpdateWidget(covariant _VideoFrameThumb oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _bytes = null;
+      _loading = true;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final url = widget.url;
+    if (url.isEmpty) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    if (_cache.containsKey(url)) {
+      if (!mounted) return;
+      setState(() {
+        _bytes = _cache[url];
+        _loading = false;
+      });
+      return;
+    }
+    try {
+      final data = await VideoThumbnail.thumbnailData(
+        video: url,
+        imageFormat: ImageFormat.JPEG,
+        maxWidth: 720,
+        timeMs: 500,
+        quality: 75,
+      );
+      _cache[url] = data;
+      if (!mounted) return;
+      setState(() {
+        _bytes = data;
+        _loading = false;
+      });
+    } catch (_) {
+      _cache[url] = null;
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<void>(
-      future: _initFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done ||
-            !_controller.value.isInitialized) {
-          return _videoOrImageFallback(
-            context: context,
-            isDark: widget.isDark,
-            kind: MediaKind.video,
-          );
-        }
-
-        // Show the video frame (at time=0) as a thumbnail.
-        return FittedBox(
-          fit: BoxFit.cover,
+    if (_bytes != null) {
+      return Image.memory(
+        _bytes!,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
+      );
+    }
+    if (_loading) {
+      return ColoredBox(
+        color: widget.isDark ? Colors.grey.shade800 : Colors.grey.shade300,
+        child: const Center(
           child: SizedBox(
-            width: double.infinity,
-            height: double.infinity,
-            child: VideoPlayer(_controller),
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2),
           ),
-        );
-      },
+        ),
+      );
+    }
+    return _videoOrImageFallback(
+      context: context,
+      isDark: widget.isDark,
+      kind: MediaKind.video,
     );
   }
 }
@@ -1168,6 +1253,13 @@ class _VideoListItem extends StatelessWidget {
         cacheHeight: 104,
         filterQuality: FilterQuality.low,
         errorBuilder: (ctx, err, _) => _thumbPlaceholder(),
+      );
+    }
+    if (local.existsSync() && !video.isImage) {
+      return SizedBox(
+        width: 72,
+        height: 52,
+        child: _VideoFrameThumb(url: video.savePath, isDark: true),
       );
     }
     if (video.thumbnailUrl.isNotEmpty) {
