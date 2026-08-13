@@ -13,7 +13,7 @@
 		<key>CFBundleInfoDictionaryVersion</key>
 		<string>6.0</string>
 		<key>CFBundleName</key>
-		<string>toolmate</string>
+		<string>Toolmate</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
@@ -49,6 +49,10 @@
 		<string>This app requires access to your photo library to save downloaded videos and find duplicate images.</string>
 		<key>NSPhotoLibraryAddUsageDescription</key>
 		<string>This app requires access to add downloaded videos to your photo library.</string>
+		<key>NSCameraUsageDescription</key>
+		<string>Toolmate uses the camera to take photos for your profile and file vault.</string>
+		<key>NSFaceIDUsageDescription</key>
+		<string>Toolmate uses Face ID to unlock the app.</string>
 		<key>UIStatusBarHidden</key>
 		<false/>
 	</dict>

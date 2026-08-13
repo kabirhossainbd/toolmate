@@ -1,11 +1,8 @@
 name: toolmate
-description: "A new Flutter project."
-# The following line prevents the package from being accidentally published to
-# pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+description: "Toolmate — utilities for storage, notifications, media, and everyday device tools."
+publish_to: 'none'
 
-
-# of the product and file versions while build-number is used as the build suffix.
+# versionName+versionCode (Play requires versionCode to increase on every upload)
 version: 1.0.0+1
 
 environment:
