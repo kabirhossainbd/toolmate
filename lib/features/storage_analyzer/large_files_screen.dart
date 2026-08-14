@@ -46,14 +46,11 @@ class _LargeFilesScreenState extends State<LargeFilesScreen> {
       message: 'To find large files, we need permission to scan your storage.',
     );
     if (!mounted) return;
-    if (!ok) {
-      Get.back();
-      return;
-    }
-
-    if (controller.largeFiles.isEmpty &&
-        !controller.isScanningLargeFiles.value) {
-      controller.scanLargeFiles();
+    if (ok) {
+      if (controller.largeFiles.isEmpty &&
+          !controller.isScanningLargeFiles.value) {
+        controller.scanLargeFiles();
+      }
     }
   }
 

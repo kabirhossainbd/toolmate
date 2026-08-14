@@ -50,10 +50,6 @@ class _StorageExplorerScreenState extends State<StorageExplorerScreen> {
       message: 'To analyze folders, we need permission to scan your storage.',
     );
     if (!mounted) return;
-    if (!ok) {
-      Get.back();
-      return;
-    }
     _load(_path);
   }
 

@@ -11,7 +11,7 @@ class EmptyState extends StatelessWidget {
     this.iconSize = 48,
   });
 
-  final IconData icon;
+  final FaIconData icon;
   final String message;
   final Widget? action;
   final double iconSize;
