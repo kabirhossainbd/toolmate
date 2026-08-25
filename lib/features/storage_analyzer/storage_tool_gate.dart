@@ -28,6 +28,7 @@ Future<void> waitForRouteTransition(BuildContext context) async {
 }
 
 /// Runs after a tool screen is already visible — never block Get.to / Get.toNamed.
+/// Runs after a tool screen is already visible — never block Get.to / Get.toNamed.
 Future<bool> ensureStorageToolAccess({
   required String title,
   required String message,
@@ -35,11 +36,17 @@ Future<bool> ensureStorageToolAccess({
 }) async {
   if (gallery) {
     final status = await PhotoManager.requestPermissionExtend();
-    if (status.isAuth) return true;
+    if (status.isAuth || status.hasAccess) return true;
+    final photos = await Permission.photos.isGranted;
+    final videos = await Permission.videos.isGranted;
+    if (photos || videos) return true;
   } else {
     final manage = await Permission.manageExternalStorage.isGranted;
     final storage = await Permission.storage.isGranted;
-    if (manage || storage) return true;
+    final photos = await Permission.photos.isGranted;
+    final videos = await Permission.videos.isGranted;
+    final audio = await Permission.audio.isGranted;
+    if (manage || storage || (photos && videos) || audio) return true;
   }
 
   final granted = await Get.dialog<bool>(
@@ -97,14 +104,42 @@ Future<bool> ensureStorageToolAccess({
                       if (gallery) {
                         final status =
                             await PhotoManager.requestPermissionExtend();
-                        Get.back(result: status.isAuth);
-                      } else {
-                        var status =
-                            await Permission.manageExternalStorage.request();
-                        if (!status.isGranted) {
-                          status = await Permission.storage.request();
+                        if (status.isAuth || status.hasAccess) {
+                          Get.back(result: true);
+                          return;
                         }
-                        Get.back(result: status.isGranted);
+                        final map = await [
+                          Permission.photos,
+                          Permission.videos,
+                        ].request();
+                        if (map.values.any((s) => s.isGranted)) {
+                          Get.back(result: true);
+                          return;
+                        }
+                        await openAppSettings();
+                        Get.back(result: false);
+                      } else {
+                        final map = await [
+                          Permission.storage,
+                          Permission.photos,
+                          Permission.videos,
+                          Permission.audio,
+                        ].request();
+
+                        if (map.values.any((s) => s.isGranted)) {
+                          Get.back(result: true);
+                          return;
+                        }
+
+                        var manageStatus =
+                            await Permission.manageExternalStorage.request();
+                        if (manageStatus.isGranted) {
+                          Get.back(result: true);
+                          return;
+                        }
+
+                        await openAppSettings();
+                        Get.back(result: false);
                       }
                     },
                     style: ElevatedButton.styleFrom(

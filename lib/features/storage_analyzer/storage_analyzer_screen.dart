@@ -387,24 +387,16 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
 
   Widget _buildToolTile(
     BuildContext context, {
-    required IconData icon,
+    required FaIconData icon,
     required Color color,
     required String title,
     required Widget subtitle,
     required VoidCallback onTap,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+    return Material(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         leading: Container(
@@ -413,7 +405,7 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
             color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(15),
           ),
-          child: Icon(icon, color: color, size: 20),
+          child: FaIcon(icon, color: color, size: 20),
         ),
         title: Text(title, style: openSansSemiBold.copyWith(fontSize: 15)),
         subtitle: DefaultTextStyle(

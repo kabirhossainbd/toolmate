@@ -3,7 +3,7 @@ description: "Toolmate — utilities for storage, notifications, media, and ever
 publish_to: 'none'
 
 # versionName+versionCode (Play requires versionCode to increase on every upload)
-version: 1.0.0+1
+version: 1.0.0+4
 
 environment:
   sdk: ^3.10.7
@@ -36,7 +36,7 @@ dependencies:
   youtube_explode_dart: ^3.0.5
   share_plus: ^12.0.1
   image_picker: ^1.1.2
-  font_awesome_flutter: ^10.12.0
+  font_awesome_flutter: ^11.0.0
   flutter_animate: ^4.5.2
   installed_apps: ^2.1.1
   video_player: ^2.8.2

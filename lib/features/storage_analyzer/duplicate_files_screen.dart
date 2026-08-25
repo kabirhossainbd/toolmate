@@ -50,14 +50,11 @@ class _DuplicateFilesScreenState extends State<DuplicateFilesScreen> {
           'To find duplicate files, we need permission to scan your storage.',
     );
     if (!mounted) return;
-    if (!ok) {
-      Get.back();
-      return;
-    }
-
-    if (controller.duplicateFilesList.isEmpty &&
-        !controller.isScanningDuplicates.value) {
-      controller.findAllDuplicateFiles();
+    if (ok) {
+      if (controller.duplicateFilesList.isEmpty &&
+          !controller.isScanningDuplicates.value) {
+        controller.findAllDuplicateFiles();
+      }
     }
   }
 

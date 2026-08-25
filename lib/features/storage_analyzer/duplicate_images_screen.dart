@@ -47,14 +47,11 @@ class _DuplicateImagesScreenState extends State<DuplicateImagesScreen> {
       gallery: true,
     );
     if (!mounted) return;
-    if (!ok) {
-      Get.back();
-      return;
-    }
-
-    if (controller.duplicateImages.isEmpty &&
-        !controller.isScanningImages.value) {
-      controller.findDuplicateImages();
+    if (ok) {
+      if (controller.duplicateImages.isEmpty &&
+          !controller.isScanningImages.value) {
+        controller.findDuplicateImages();
+      }
     }
   }
 
