@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:video_thumbnail_gen/video_thumbnail_gen.dart';
 
 import '../../core/app_ui.dart';
 import '../../core/style.dart';

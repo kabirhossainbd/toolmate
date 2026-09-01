@@ -16,8 +16,23 @@ const String kPendingNotificationsFile = 'pending_notifications.jsonl';
 
 @pragma('vm:entry-point')
 class BackgroundService {
+  static bool _configured = false;
+
+  /// Configure the plugin only. Do **not** start the FGS from [main] —
+  /// Android 12+ rejects `startForegroundService()` until the Activity is
+  /// resumed (`mAllowStartForeground false`).
   static Future<void> initializeService() async {
+    if (_configured) return;
     final service = FlutterBackgroundService();
+
+    // Process often survives swipe-kill (NLS). Re-configure() while the old
+    // FlutterEngine is still up deadlocks the new UI isolate.
+    try {
+      if (await service.isRunning().timeout(const Duration(seconds: 1))) {
+        _configured = true;
+        return;
+      }
+    } catch (_) {}
 
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
       'my_foreground',
@@ -34,63 +49,97 @@ class BackgroundService {
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
 
-    await service.configure(
-      androidConfiguration: AndroidConfiguration(
-        onStart: onStart,
-        // Don't auto-respawn after swipe-kill — that leaves a lone FlutterEngine
-        // and blocks the next UI cold start (stuck splash).
-        autoStart: false,
-        autoStartOnBoot: false,
-        isForegroundMode: true,
-        notificationChannelId: 'my_foreground',
-        initialNotificationTitle: 'Toolmate',
-        initialNotificationContent: 'Listening for notifications',
-        foregroundServiceNotificationId: 888,
-      ),
-      iosConfiguration: IosConfiguration(
-        autoStart: false,
-        onForeground: onStart,
-        onBackground: onIosBackground,
-      ),
-    );
+    await service
+        .configure(
+          androidConfiguration: AndroidConfiguration(
+            onStart: onStart,
+            // Don't auto-respawn after swipe-kill — that leaves a lone FlutterEngine
+            // and blocks the next UI cold start (stuck splash).
+            autoStart: false,
+            autoStartOnBoot: false,
+            isForegroundMode: true,
+            notificationChannelId: 'my_foreground',
+            initialNotificationTitle: 'Toolmate',
+            initialNotificationContent: 'Listening for notifications',
+            foregroundServiceNotificationId: 888,
+            foregroundServiceTypes: const [AndroidForegroundType.specialUse],
+          ),
+          iosConfiguration: IosConfiguration(
+            autoStart: false,
+            onForeground: onStart,
+            onBackground: onIosBackground,
+          ),
+        )
+        .timeout(const Duration(seconds: 4));
+    _configured = true;
+  }
 
-    // Start only if UI asked us to and nothing is running.
-    final running = await service.isRunning();
-    if (!running) {
-      await service.startService();
+  /// Start the FGS only while the app is eligible (typically after first
+  /// frame / [AppLifecycleState.resumed]). Failures are swallowed — the UI
+  /// isolate already captures notifications while the app is open.
+  static Future<bool> startIfAllowed() async {
+    try {
+      final service = FlutterBackgroundService();
+      try {
+        if (await service.isRunning().timeout(const Duration(seconds: 1))) {
+          _configured = true;
+          return true;
+        }
+      } catch (_) {}
+      await initializeService();
+      if (await service.isRunning().timeout(const Duration(seconds: 1))) {
+        return true;
+      }
+      return await service.startService().timeout(const Duration(seconds: 4));
+    } catch (e) {
+      // ignore: avoid_print
+      print('BackgroundService.startIfAllowed skipped: $e');
+      return false;
     }
   }
 
-  /// Drain file-queue written by the background isolate into [onItem].
+  /// Drain file-queue written by the notification listener (possibly another process).
   static Future<int> drainPendingNotifications(
     FutureOr<void> Function(Map<String, dynamic> json) onItem,
   ) async {
+    var count = 0;
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/$kPendingNotificationsFile');
-      if (!await file.exists()) return 0;
-
-      final raw = await file.readAsString();
-      // Truncate immediately so we don't double-import on crash mid-drain.
-      await file.writeAsString('', flush: true);
-      if (raw.trim().isEmpty) return 0;
-
-      var count = 0;
-      for (final line in raw.split('\n')) {
-        final trimmed = line.trim();
-        if (trimmed.isEmpty) continue;
+      final fromNative =
+          await NotificationListenerService.drainPendingQueue();
+      for (final map in fromNative) {
         try {
-          final map = jsonDecode(trimmed) as Map<String, dynamic>;
           await onItem(map);
           count++;
-        } catch (_) {
-          // Skip corrupt lines.
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    try {
+      final dirs = <Directory>[];
+      try {
+        dirs.add(await getApplicationDocumentsDirectory());
+      } catch (_) {}
+      try {
+        dirs.add(await getApplicationSupportDirectory());
+      } catch (_) {}
+      for (final dir in dirs) {
+        final file = File('${dir.path}/$kPendingNotificationsFile');
+        if (!await file.exists()) continue;
+        final raw = await file.readAsString();
+        await file.writeAsString('', flush: true);
+        if (raw.trim().isEmpty) continue;
+        for (final line in raw.split('\n')) {
+          final trimmed = line.trim();
+          if (trimmed.isEmpty) continue;
+          try {
+            final map = jsonDecode(trimmed) as Map<String, dynamic>;
+            await onItem(map);
+            count++;
+          } catch (_) {}
         }
       }
-      return count;
-    } catch (_) {
-      return 0;
-    }
+    } catch (_) {}
+    return count;
   }
 
   @pragma('vm:entry-point')

@@ -1,7 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
 
-import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
 import 'package:notification_listener_service/notification_event.dart';
@@ -9,10 +8,15 @@ import 'package:notification_listener_service/notification_listener_service.dart
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/background_service.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/hive_bootstrap.dart';
+import '../../core/settings/app_settings_controller.dart';
 import 'notification_model.dart';
 
 class NotificationHistoryController extends GetxController {
-  late Box<NotificationModel> box;
+  Box<NotificationModel>? _box;
+  Box<NotificationModel> get box => _box!;
+  bool get _boxReady => _box != null && _box!.isOpen;
 
   final notifications = <NotificationModel>[].obs;
   final filteredNotifications = <NotificationModel>[].obs;
@@ -24,6 +28,7 @@ class NotificationHistoryController extends GetxController {
 
   final uniqueApps = <String>['All'].obs;
   final isServiceRunning = false.obs;
+  final permissionGranted = false.obs;
 
   final sortOrder = 'New First'.obs;
 
@@ -46,6 +51,7 @@ class NotificationHistoryController extends GetxController {
   StreamSubscription? _captureSub;
   StreamSubscription? _foregroundSub;
   bool _refreshing = false;
+  final List<Map<String, dynamic>> _pendingIngest = [];
   final Set<String> _seenIds = {};
   final Map<String, int> _recentFingerprints = {};
   /// contentKey → notification id for fast merge lookups.
@@ -57,6 +63,11 @@ class NotificationHistoryController extends GetxController {
   static const _mergeWindow = Duration(minutes: 45);
   /// Same Android shade key updates merge within this window.
   static const _keyUpdateWindow = Duration(hours: 6);
+
+  AppSettingsController? get _settings =>
+      Get.isRegistered<AppSettingsController>()
+          ? Get.find<AppSettingsController>()
+          : null;
 
   static String _senderKey(String packageName, String senderName) =>
       '$packageName\u0000$senderName';
@@ -154,28 +165,58 @@ class NotificationHistoryController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    box = Hive.box<NotificationModel>('notifications');
-    _loadFromHive();
-    _initService();
-    // BG isolate writes to a JSONL queue (not Hive) — drain periodically.
+    unawaited(_bootstrap());
+  }
+
+  Future<void> _bootstrap() async {
+    try {
+      if (!HiveBootstrap.ready) {
+        await HiveBootstrap.init();
+      }
+      _box = await _ensureNotificationsBox();
+      if (_boxReady) {
+        await Future<void>.delayed(Duration.zero);
+        _loadFromHive();
+        await _flushPendingIngest();
+      }
+    } catch (e) {
+      debugPrint('NotificationHistoryController bootstrap failed: $e');
+    }
+    unawaited(_initService());
     _periodicSync = Timer.periodic(
-      const Duration(seconds: 8),
+      const Duration(seconds: 1),
       (_) => unawaited(_drainPendingQueue()),
     );
   }
 
-  /// Import captures written by the background isolate while UI was dead.
+  Future<Box<NotificationModel>?> _ensureNotificationsBox() async {
+    const name = AppConstants.boxNotifications;
+    if (Hive.isBoxOpen(name)) {
+      return Hive.box<NotificationModel>(name);
+    }
+    try {
+      return await Hive.openBox<NotificationModel>(name)
+          .timeout(const Duration(seconds: 3));
+    } catch (e) {
+      debugPrint('open notifications box failed: $e');
+      return null;
+    }
+  }
+
+  /// Import captures written by the notification listener while UI was dead.
   Future<void> _drainPendingQueue() async {
     try {
       final imported = await BackgroundService.drainPendingNotifications(
         (json) async {
-          await _upsertFromMap(Map<String, dynamic>.from(json));
+          await _upsertFromMap(json);
         },
       );
+      await _flushPendingIngest();
       if (imported > 0) {
         _updateUniqueApps();
         _rebuildUnreadCaches();
         _applyFilters();
+        notifications.refresh();
       }
     } catch (_) {
       // Keep UI responsive if drain fails.
@@ -193,6 +234,7 @@ class NotificationHistoryController extends GetxController {
   }
 
   void _loadFromHive() {
+    if (!_boxReady) return;
     _deduplicateHive();
     final list = box.values.toList()
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -203,7 +245,52 @@ class NotificationHistoryController extends GetxController {
     _rebuildMergeIndexes(list);
     _updateUniqueApps();
     _rebuildUnreadCaches();
+    applyRetention();
     _applyFilters();
+  }
+
+  /// Drop expired / over-limit rows after settings change or load.
+  void applyRetention() {
+    if (!_boxReady) return;
+    final settings = _settings;
+    if (settings == null) return;
+
+    final days = settings.autoDeleteDays.value;
+    if (days > 0) {
+      final cutoff = DateTime.now().subtract(Duration(days: days));
+      final keys = <dynamic>[];
+      for (final key in box.keys.toList()) {
+        final n = box.get(key);
+        if (n != null && n.timestamp.isBefore(cutoff)) keys.add(key);
+      }
+      for (final key in keys) {
+        box.delete(key);
+      }
+    }
+
+    final max = settings.historySize.value;
+    if (max > 0 && box.length > max) {
+      final values = box.values.toList()
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      for (var i = max; i < values.length; i++) {
+        try {
+          values[i].delete();
+        } catch (_) {}
+      }
+    }
+
+    if (days > 0 || max > 0) {
+      final list = box.values.toList()
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      notifications.assignAll(list);
+      _seenIds
+        ..clear()
+        ..addAll(list.map((e) => e.id));
+      _rebuildMergeIndexes(list);
+      _updateUniqueApps();
+      _rebuildUnreadCaches();
+      _applyFilters();
+    }
   }
 
   /// Re-open box so BG-isolate Hive writes become visible to the UI isolate.
@@ -211,17 +298,24 @@ class NotificationHistoryController extends GetxController {
     if (_refreshing) return;
     _refreshing = true;
     try {
-      final name = box.name;
-      final before = box.isOpen ? box.length : -1;
-      if (forceReopen || !box.isOpen) {
-        if (box.isOpen) await box.close();
-        box = await Hive.openBox<NotificationModel>(name);
-      } else if ((box.length - notifications.length).abs() > 0) {
-        if (box.isOpen) await box.close();
-        box = await Hive.openBox<NotificationModel>(name);
+      const name = AppConstants.boxNotifications;
+      final current = _box;
+      final before = (current != null && current.isOpen) ? current.length : -1;
+      if (forceReopen || current == null || !current.isOpen) {
+        if (current != null && current.isOpen) {
+          await current.close().timeout(const Duration(seconds: 1));
+        }
+        _box = await Hive.openBox<NotificationModel>(name)
+            .timeout(const Duration(seconds: 3));
+      } else if ((current.length - notifications.length).abs() > 0) {
+        await current.close().timeout(const Duration(seconds: 1));
+        _box = await Hive.openBox<NotificationModel>(name)
+            .timeout(const Duration(seconds: 3));
       }
-      // Only rebuild UI if something changed.
-      if (forceReopen || box.length != before || box.length != notifications.length) {
+      if (!_boxReady) return;
+      if (forceReopen ||
+          _box!.length != before ||
+          _box!.length != notifications.length) {
         _loadFromHive();
       }
     } catch (_) {
@@ -229,6 +323,10 @@ class NotificationHistoryController extends GetxController {
     } finally {
       _refreshing = false;
     }
+    try {
+      await NotificationListenerService.requestRebind();
+    } catch (_) {}
+    await _drainPendingQueue();
   }
 
   void _scheduleSoftRefresh() {
@@ -256,7 +354,24 @@ class NotificationHistoryController extends GetxController {
     return false;
   }
 
+  Future<void> _flushPendingIngest() async {
+    if (!_boxReady || _pendingIngest.isEmpty) return;
+    final queued = List<Map<String, dynamic>>.from(_pendingIngest);
+    _pendingIngest.clear();
+    for (final map in queued) {
+      await _upsertFromMap(map);
+    }
+  }
+
   Future<void> _upsertFromMap(Map<String, dynamic> map) async {
+    if (!_boxReady) {
+      if (_pendingIngest.length < 300) {
+        _pendingIngest.add(Map<String, dynamic>.from(map));
+      }
+      return;
+    }
+    if (_settings?.historyDisabled.value == true) return;
+
     final packageName = map['packageName']?.toString() ?? '';
     if (packageName.isEmpty) return;
 
@@ -344,6 +459,9 @@ class NotificationHistoryController extends GetxController {
     _seenIds.add(uniqueId);
     _indexNotif(notif);
     notifications.insert(0, notif);
+    notifications.refresh();
+    _rebuildUnreadCaches();
+    _applyFilters();
   }
 
   void _ingestCaptured(Map<dynamic, dynamic>? event) {
@@ -370,10 +488,13 @@ class NotificationHistoryController extends GetxController {
 
       final title = event.displayTitle;
       final content = (event.content ?? '').trim();
-      if (title == 'No title' && content.isEmpty) return;
-      final textSafe = content.isNotEmpty ? content : 'No content';
+      if ((title == 'No title' || title.isEmpty) && content.isEmpty) return;
+      final textSafe = content.isNotEmpty
+          ? content
+          : (title != 'No title' && title.isNotEmpty ? title : 'No content');
 
-      if (event.onGoing == true) {
+      if (event.onGoing == true &&
+          _settings?.saveOngoingNotifications.value != true) {
         final lower = '$title $textSafe'.toLowerCase();
         if (lower.contains('%') ||
             lower.contains('downloading') ||
@@ -414,6 +535,7 @@ class NotificationHistoryController extends GetxController {
   }
 
   void _deduplicateHive() {
+    if (!_boxReady) return;
     // 1) Drop exact id duplicates.
     // 2) Merge same contentKey within merge window into one row with summed count.
     final byId = <String, dynamic>{};
@@ -479,30 +601,56 @@ class NotificationHistoryController extends GetxController {
   }
 
   Future<void> _initService() async {
-    bool status = await NotificationListenerService.isPermissionGranted();
-    if (!status) {
-      status = await NotificationListenerService.requestPermission();
-    }
-
-    if (!status) {
-      Get.snackbar(
-        'Permission Denied',
-        'Notification access is required to capture notifications.',
-      );
-      return;
-    }
-
-    if (isServiceRunning.value) return;
+    await _startCaptureListeners();
     isServiceRunning.value = true;
-
-    _captureSub =
-        FlutterBackgroundService().on('onNotificationCaptured').listen((event) {
-      _ingestCaptured(event);
-    });
-
-    // Dual-listen in UI isolate so we don't miss events when invoke is delayed.
     try {
-      _foregroundSub = NotificationListenerService.notificationsStream.listen(
+      await NotificationListenerService.requestRebind();
+    } catch (_) {}
+
+    await refreshPermission();
+
+    try {
+      final active = await NotificationListenerService.getActiveNotifications()
+          .timeout(const Duration(seconds: 2), onTimeout: () => []);
+      for (final event in active) {
+        await _persistForegroundEvent(event);
+      }
+    } catch (_) {}
+    await _drainPendingQueue();
+  }
+
+  /// Re-check NLS permission (e.g. after returning from Settings).
+  Future<void> refreshPermission() async {
+    try {
+      permissionGranted.value =
+          await NotificationListenerService.isPermissionGranted()
+              .timeout(const Duration(seconds: 2), onTimeout: () => false);
+    } catch (_) {
+      permissionGranted.value = false;
+    }
+  }
+
+  Future<void> requestAccessAndStart() async {
+    try {
+      permissionGranted.value =
+          await NotificationListenerService.requestPermission();
+    } catch (_) {}
+    await refreshPermission();
+    if (permissionGranted.value) {
+      await _startCaptureListeners();
+      try {
+        final active = await NotificationListenerService.getActiveNotifications();
+        for (final event in active) {
+          await _persistForegroundEvent(event);
+        }
+      } catch (_) {}
+      await _drainPendingQueue();
+    }
+  }
+
+  Future<void> _startCaptureListeners() async {
+    try {
+      _foregroundSub ??= NotificationListenerService.notificationsStream.listen(
         (event) {
           unawaited(_persistForegroundEvent(event));
         },
@@ -512,21 +660,6 @@ class NotificationHistoryController extends GetxController {
     } catch (_) {
       // Android-only API.
     }
-
-    final isRunning = await FlutterBackgroundService().isRunning();
-    if (!isRunning) {
-      await FlutterBackgroundService().startService();
-    }
-
-    // Pull anything currently in the shade.
-    try {
-      final active = await NotificationListenerService.getActiveNotifications();
-      for (final event in active) {
-        await _persistForegroundEvent(event);
-      }
-    } catch (_) {}
-
-    await _drainPendingQueue();
   }
 
   void _updateUniqueApps() {
@@ -743,6 +876,28 @@ class NotificationHistoryController extends GetxController {
     return {for (var k in sortedKeys) k: groups[k]!};
   }
 
+  /// Flat newest-first list for one app (matches the 2-level history UI).
+  List<NotificationModel> notificationsForApp(String packageName) {
+    final query = searchQuery.value.toLowerCase();
+    final hasQuery = query.isNotEmpty;
+    final unread = unreadOnly.value;
+    final list = <NotificationModel>[];
+    for (final n in notifications) {
+      if (n.packageName != packageName) continue;
+      if (unread && n.isRead) continue;
+      if (!_inTimeRange(n)) continue;
+      if (hasQuery) {
+        if (!n.title.toLowerCase().contains(query) &&
+            !n.text.toLowerCase().contains(query)) {
+          continue;
+        }
+      }
+      list.add(n);
+    }
+    list.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return list;
+  }
+
   List<NotificationModel> conversationMessages(
       String packageName, String senderName) {
     final want = sanitizeUtf16(senderName).trim();
@@ -771,6 +926,7 @@ class NotificationHistoryController extends GetxController {
   }
 
   Future<void> markAllRead() async {
+    if (!_boxReady) return;
     var changed = false;
     for (final n in box.values) {
       if (!n.isRead) {
@@ -795,6 +951,7 @@ class NotificationHistoryController extends GetxController {
 
   Future<void> markConversationRead(
       String packageName, String senderName) async {
+    if (!_boxReady) return;
     var changed = false;
 
     for (final n in box.values) {
@@ -827,9 +984,9 @@ class NotificationHistoryController extends GetxController {
   Future<void> markMessageRead(NotificationModel message) async {
     if (message.isRead) return;
     message.isRead = true;
-    if (message.isInBox) {
+    if (_boxReady && message.isInBox) {
       await message.save();
-    } else {
+    } else if (_boxReady) {
       for (final n in box.values) {
         if (n.id == message.id &&
             n.packageName == message.packageName &&
@@ -894,7 +1051,7 @@ class NotificationHistoryController extends GetxController {
   }
 
   void clearHistory() {
-    box.clear();
+    if (_boxReady) box.clear();
     notifications.clear();
     filteredNotifications.clear();
     groupedNotifications.clear();
@@ -906,7 +1063,7 @@ class NotificationHistoryController extends GetxController {
   }
 
   void deleteNotification(String id) {
-    if (id.isEmpty) return;
+    if (id.isEmpty || !_boxReady) return;
     final keys = <dynamic>[];
     for (final key in box.keys.toList()) {
       final n = box.get(key);
@@ -921,7 +1078,7 @@ class NotificationHistoryController extends GetxController {
   }
 
   void deleteByPackage(String packageName) {
-    if (packageName.isEmpty) return;
+    if (packageName.isEmpty || !_boxReady) return;
     final keys = <dynamic>[];
     final removedIds = <String>{};
     for (final key in box.keys.toList()) {
@@ -940,7 +1097,7 @@ class NotificationHistoryController extends GetxController {
   }
 
   void deleteBySender(String packageName, String senderName) {
-    if (packageName.isEmpty) return;
+    if (packageName.isEmpty || !_boxReady) return;
     final keys = <dynamic>[];
     final removedIds = <String>{};
     for (final key in box.keys.toList()) {

@@ -7,8 +7,21 @@ import '../../core/style.dart';
 import '../../routes/app_routes.dart';
 import 'storage_analyzer_controller.dart';
 
-class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
+class StorageAnalyzerScreen extends StatefulWidget {
   const StorageAnalyzerScreen({super.key});
+
+  @override
+  State<StorageAnalyzerScreen> createState() => _StorageAnalyzerScreenState();
+}
+
+class _StorageAnalyzerScreenState extends State<StorageAnalyzerScreen> {
+  late final StorageAnalyzerController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = Get.find<StorageAnalyzerController>();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +31,7 @@ class StorageAnalyzerScreen extends GetView<StorageAnalyzerController> {
         leadingWidth: 56,
         leading: IconButton(
           tooltip: 'Back',
-          onPressed: () => Get.back(),
+          onPressed: () => Navigator.of(context).maybePop(),
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
         ),
         title: Text('Storage Analyzer', style: openSansBold.copyWith(fontSize: 17)),

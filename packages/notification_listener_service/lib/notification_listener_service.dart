@@ -47,6 +47,32 @@ class NotificationListenerService {
     }
   }
 
+  /// Ask the system to bind the listener again (needed after process changes).
+  static Future<void> requestRebind() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await methodeChannel.invokeMethod('requestRebind');
+    } on PlatformException catch (error) {
+      log("$error");
+    }
+  }
+
+  /// Pull notifications the Android listener persisted to disk.
+  static Future<List<Map<String, dynamic>>> drainPendingQueue() async {
+    if (!Platform.isAndroid) return const [];
+    try {
+      final result = await methodeChannel.invokeMethod('drainPendingQueue');
+      if (result is! List) return const [];
+      return result
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    } on PlatformException catch (error) {
+      log("drainPendingQueue error: $error");
+      return const [];
+    }
+  }
+
   /// get currently active notifications
   static Future<List<ServiceNotificationEvent>> getActiveNotifications() async {
     try {

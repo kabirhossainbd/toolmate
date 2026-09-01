@@ -76,7 +76,7 @@ class _DuplicateImagesScreenState extends State<DuplicateImagesScreen> {
         leadingWidth: 56,
         leading: IconButton(
           tooltip: 'Back',
-          onPressed: () => Get.back(),
+          onPressed: () => Navigator.of(context).maybePop(),
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
         ),
         title: Text('Duplicate Images',
@@ -143,6 +143,7 @@ class _DuplicateImagesScreenState extends State<DuplicateImagesScreen> {
           itemBuilder: (context, index) {
             final group = controller.duplicateImages[index];
             return _ImageGroupCard(
+              key: ValueKey(group.map((a) => a.id).join('|')),
               groupIndex: index,
               group: group,
               onPreview: (asset) => _openPreview(context, group, asset),
@@ -356,6 +357,7 @@ class _ImageGroupCard extends StatelessWidget {
   final void Function(AssetEntity asset) onDelete;
 
   const _ImageGroupCard({
+    super.key,
     required this.groupIndex,
     required this.group,
     required this.onPreview,

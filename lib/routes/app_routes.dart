@@ -5,14 +5,17 @@ abstract class Routes {
   static const home = '/home';
 
   static const storageAnalyzer = '/storage-analyzer';
-  static const largeFiles = '/storage-analyzer/large-files';
-  static const duplicateFiles = '/storage-analyzer/duplicate-files';
-  static const duplicateImages = '/storage-analyzer/duplicate-images';
-  static const storageExplorer = '/storage-analyzer/explorer';
+  // Sibling routes — never nest as `/storage-analyzer/...` or GetX
+  // creates a nested navigator that traps back navigation.
+  static const largeFiles = '/large-files';
+  static const duplicateFiles = '/duplicate-files';
+  static const duplicateImages = '/duplicate-images';
+  static const storageExplorer = '/storage-explorer';
   static const videoDownloader = '/video-downloader';
   static const notificationHistory = '/notification-history';
-  static const notificationApp = '/notification-history/app';
-  static const notificationChat = '/notification-history/chat';
+  static const notificationSettings = '/notification-settings';
+  static const notificationApp = '/notification-app';
+  static const notificationChat = '/notification-chat';
   static const userProfile = '/user-profile';
 
   static const notes = '/notes';

@@ -5,9 +5,9 @@ import static notification.listener.service.NotificationConstants.*;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build.VERSION_CODES;
-
-import androidx.annotation.RequiresApi;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 
 import io.flutter.plugin.common.EventChannel.EventSink;
 
@@ -15,51 +15,43 @@ import java.util.HashMap;
 
 public class NotificationReceiver extends BroadcastReceiver {
 
+    private static final String TAG = "NotificationReceiver";
     private EventSink eventSink;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     public NotificationReceiver(EventSink eventSink) {
         this.eventSink = eventSink;
     }
 
-    @RequiresApi(api = VERSION_CODES.JELLY_BEAN_MR2)
     @Override
     public void onReceive(Context context, Intent intent) {
-        String packageName = intent.getStringExtra(PACKAGE_NAME);
-        String title = intent.getStringExtra(NOTIFICATION_TITLE);
-        String content = intent.getStringExtra(NOTIFICATION_CONTENT);
-        String sender = intent.getStringExtra(SENDER);
-        String key = intent.getStringExtra(KEY);
-        String tag = intent.getStringExtra(TAG);
-        String channelId = intent.getStringExtra(CHANNEL_ID);
-        byte[] notificationIcon = intent.getByteArrayExtra(NOTIFICATIONS_ICON);
-        byte[] notificationExtrasPicture = intent.getByteArrayExtra(EXTRAS_PICTURE);
-        byte[] largeIcon = intent.getByteArrayExtra(NOTIFICATIONS_LARGE_ICON);
-        boolean haveExtraPicture = intent.getBooleanExtra(HAVE_EXTRA_PICTURE, false);
-        boolean hasRemoved = intent.getBooleanExtra(IS_REMOVED, false);
-        boolean canReply = intent.getBooleanExtra(CAN_REPLY, false);
-        boolean isOngoing = intent.getBooleanExtra(IS_ONGOING, false);
-        int id = intent.getIntExtra(ID, -1);
-        long postTime = intent.getLongExtra(POST_TIME, 0L);
-
+        if (intent == null || eventSink == null) return;
 
         HashMap<String, Object> data = new HashMap<>();
-        data.put("id", id);
-        data.put("packageName", packageName);
-        data.put("title", title);
-        data.put("content", content);
-        data.put("sender", sender);
-        data.put("key", key);
-        data.put("tag", tag);
-        data.put("channelId", channelId);
-        data.put("postTime", postTime);
-        data.put("notificationIcon", notificationIcon);
-        data.put("notificationExtrasPicture", notificationExtrasPicture);
-        data.put("haveExtraPicture", haveExtraPicture);
-        data.put("largeIcon", largeIcon);
-        data.put("hasRemoved", hasRemoved);
-        data.put("canReply", canReply);
-        data.put("onGoing", isOngoing);
+        data.put("id", intent.getIntExtra(ID, -1));
+        data.put("packageName", intent.getStringExtra(PACKAGE_NAME));
+        data.put("title", intent.getStringExtra(NOTIFICATION_TITLE));
+        data.put("content", intent.getStringExtra(NOTIFICATION_CONTENT));
+        data.put("sender", intent.getStringExtra(SENDER));
+        data.put("key", intent.getStringExtra(KEY));
+        data.put("tag", intent.getStringExtra(TAG));
+        data.put("channelId", intent.getStringExtra(CHANNEL_ID));
+        data.put("postTime", intent.getLongExtra(POST_TIME, 0L));
+        data.put("notificationIcon", intent.getByteArrayExtra(NOTIFICATIONS_ICON));
+        data.put("notificationExtrasPicture", intent.getByteArrayExtra(EXTRAS_PICTURE));
+        data.put("haveExtraPicture", intent.getBooleanExtra(HAVE_EXTRA_PICTURE, false));
+        data.put("largeIcon", intent.getByteArrayExtra(NOTIFICATIONS_LARGE_ICON));
+        data.put("hasRemoved", intent.getBooleanExtra(IS_REMOVED, false));
+        data.put("canReply", intent.getBooleanExtra(CAN_REPLY, false));
+        data.put("onGoing", intent.getBooleanExtra(IS_ONGOING, false));
 
-        eventSink.success(data);
+        final EventSink sink = eventSink;
+        mainHandler.post(() -> {
+            try {
+                if (sink != null) sink.success(data);
+            } catch (Exception e) {
+                Log.w(TAG, "EventSink failed: " + e.getMessage());
+            }
+        });
     }
 }

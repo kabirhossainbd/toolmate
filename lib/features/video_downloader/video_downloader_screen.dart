@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:video_thumbnail_gen/video_thumbnail_gen.dart';
 
 import '../../core/app_ui.dart';
 import '../../core/style.dart';
@@ -172,7 +172,7 @@ class _InsertLinkTab extends StatelessWidget {
                             color: isDark ? Colors.white : Colors.black87),
                         decoration: InputDecoration(
                           hintText:
-                              'Paste YouTube, Instagram, TikTok, FB… link',
+                              'Paste Instagram, TikTok, Facebook, X… link',
                           hintStyle:
                               TextStyle(color: hintColor, fontSize: 13),
                           filled: true,
@@ -505,7 +505,7 @@ class _InsertLinkTab extends StatelessWidget {
                 _HowToStep(
                   number: 1,
                   text:
-                      'Open Instagram, TikTok, YouTube, Facebook… and copy the post link',
+                      'Open Instagram, TikTok, Facebook, X… and copy the post link',
                 ),
                 const SizedBox(height: 12),
                 _HowToStep(

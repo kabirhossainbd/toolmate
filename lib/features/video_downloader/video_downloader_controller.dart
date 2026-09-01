@@ -109,6 +109,14 @@ class VideoDownloaderController extends GetxController
       return;
     }
 
+    if (SocialMediaService.isYouTubeUrl(url)) {
+      Get.snackbar(
+        'Not supported',
+        'This platform is not supported. Paste a public Instagram, TikTok, Facebook, or X link instead.',
+      );
+      return;
+    }
+
     isFetching.value = true;
     clearPreview();
 

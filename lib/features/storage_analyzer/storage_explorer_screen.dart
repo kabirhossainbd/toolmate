@@ -115,7 +115,9 @@ class _StorageExplorerScreenState extends State<StorageExplorerScreen> {
   }
 
   Future<void> _onBackPressed() async {
-    if (await _goUpOrPop() && mounted) Get.back();
+    if (await _goUpOrPop() && mounted) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   String _formatSize(int bytes) {
@@ -280,13 +282,15 @@ class _StorageExplorerScreenState extends State<StorageExplorerScreen> {
 
   Future<void> _performDelete(FileSystemEntityInfo item) async {
     try {
-      final controller = Get.find<StorageAnalyzerController>();
-      // Delete the file directly — avoid controller listFolderContent side effects.
       final file = File(item.path);
-      if (await file.exists()) {
-        await file.delete();
-      } else {
-        await controller.deleteFileSystemEntity(item.path);
+      try {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } on PathNotFoundException {
+        // Already gone from disk — still drop it from the list.
+      } on FileSystemException catch (e) {
+        if (e.osError?.errorCode != 2) rethrow;
       }
       if (!mounted) return;
       setState(() {

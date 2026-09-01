@@ -9,6 +9,7 @@ import '../features/notes/notes_controller.dart';
 import '../features/notes/notes_screen.dart';
 import '../features/notification_history/notification_history_controller.dart';
 import '../features/notification_history/notification_history_screen.dart';
+import '../features/notification_history/notification_settings_screen.dart';
 import '../features/splash/splash_screen.dart';
 import '../features/storage_analyzer/duplicate_files_screen.dart';
 import '../features/storage_analyzer/duplicate_images_screen.dart';
@@ -28,7 +29,7 @@ import 'app_routes.dart';
 class AppPages {
   AppPages._();
 
-  static const initial = Routes.splash;
+  static const initial = Routes.home;
   /// Matches Flutter CupertinoPageRoute (~400ms) for native push/pop feel.
   static const _transition = Transition.native;
   static const _duration = Duration(milliseconds: 400);
@@ -41,7 +42,13 @@ class AppPages {
 
   static void _ensureStorageController() {
     if (!Get.isRegistered<StorageAnalyzerController>()) {
-      Get.put(StorageAnalyzerController());
+      Get.put(StorageAnalyzerController(), permanent: true);
+    }
+  }
+
+  static void _ensureHomeController() {
+    if (!Get.isRegistered<HomeController>()) {
+      Get.put(HomeController(), permanent: true);
     }
   }
 
@@ -58,6 +65,9 @@ class AppPages {
       binding: bind == null ? null : BindingsBuilder(bind),
       transition: transition ?? _transition,
       transitionDuration: transitionDuration ?? _duration,
+      // Keep every feature on the root navigator. Slash-prefixed names
+      // otherwise spawn a nested navigator that eats later Get.toNamed calls.
+      participatesInRootNavigator: true,
       // iOS-style interactive edge swipe; Android still uses system back.
       popGesture: true,
       gestureWidth: (_) => 24,
@@ -75,9 +85,15 @@ class AppPages {
       name: Routes.home,
       page: () => const HomeScreen(),
       bind: () {
-        Get.put(HomeController());
-        // Start notification capture as soon as the app opens.
-        _ensureNotificationController();
+        _ensureHomeController();
+        // After home paints — never block splash/home on Hive/NLS.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          try {
+            _ensureNotificationController();
+          } catch (e) {
+            debugPrint('NotificationHistoryController skipped: $e');
+          }
+        });
       },
       transition: Transition.fadeIn,
       transitionDuration: const Duration(milliseconds: 450),
@@ -117,6 +133,11 @@ class AppPages {
     _page(
       name: Routes.notificationHistory,
       page: () => const NotificationHistoryScreen(),
+      bind: _ensureNotificationController,
+    ),
+    _page(
+      name: Routes.notificationSettings,
+      page: () => const NotificationSettingsScreen(),
       bind: _ensureNotificationController,
     ),
     _page(

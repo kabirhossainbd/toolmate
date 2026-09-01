@@ -18,6 +18,11 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- Play policy: QUERY_ALL_PACKAGES is not a permitted use case for this app.
+         The installed_apps plugin (and similar) merge this in; strip it from the AAB. -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:node="remove" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
@@ -26,8 +31,9 @@
         android:requestLegacyExternalStorage="true"
         android:allowBackup="false"
         android:label="Toolmate"
-        android:name="${applicationName}"
-        android:icon="@mipmap/launcher_icon">
+        android:name=".ToolmateApp"
+        android:icon="@mipmap/launcher_icon"
+        tools:replace="android:name">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -53,27 +59,47 @@
         <service android:name="notification.listener.service.NotificationListener"
                  android:label="Toolmate Notifications"
                  android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-                 android:exported="true">
+                 android:exported="true"
+                 android:process=":nls">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
+            <meta-data
+                android:name="android.service.notification.default_filter_types"
+                android:value="conversations|alerting|silent|ongoing" />
+            <meta-data
+                android:name="android.service.notification.disabled_filter_types"
+                android:value="" />
         </service>
 
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:enabled="false"
+            android:exported="false"
             android:foregroundServiceType="specialUse"
             android:stopWithTask="true"
             tools:node="replace">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps notification capture running so Toolmate can save notification history while the app is in the background." />
+                android:value="Unused. Notification capture runs in the system NotificationListenerService without a second Flutter engine." />
         </service>
+        <receiver
+            android:name="id.flutter.flutter_background_service.WatchdogReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name="id.flutter.flutter_background_service.BootReceiver"
+            tools:node="remove" />
     </application>
 
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Notification history only needs icons for launchable apps that posted a notification. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
         </intent>
     </queries>
 </manifest>

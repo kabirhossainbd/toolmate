@@ -49,8 +49,8 @@ public final class NotificationUtils {
             String[] names = flat.split(":");
             for (String name : names) {
                 ComponentName componentName = ComponentName.unflattenFromString(name);
-                boolean nameMatch = TextUtils.equals(packageName, componentName.getPackageName());
-                if (nameMatch) {
+                if (componentName == null) continue;
+                if (TextUtils.equals(packageName, componentName.getPackageName())) {
                     return true;
                 }
             }

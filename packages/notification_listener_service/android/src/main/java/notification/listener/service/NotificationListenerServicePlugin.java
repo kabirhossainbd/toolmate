@@ -27,6 +27,7 @@ import io.flutter.plugin.common.PluginRegistry;
 import notification.listener.service.models.Action;
 import notification.listener.service.models.ActionCache;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -100,8 +101,21 @@ public class NotificationListenerServicePlugin implements FlutterPlugin, Activit
                 List<Map<String, Object>> notifications = service.getActiveNotificationData();
                 result.success(notifications);
             } else {
-                result.error("ServiceUnavailable", "NotificationService not running", null);
+                result.success(new ArrayList<>());
             }
+        } else if (call.method.equals("drainPendingQueue")) {
+            result.success(NotificationQueueStore.drain(context));
+        } else if (call.method.equals("requestRebind")) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                try {
+                    NotificationListener.requestRebind(
+                            new android.content.ComponentName(
+                                    context, NotificationListener.class));
+                } catch (Exception e) {
+                    Log.w(TAG, "requestRebind failed: " + e.getMessage());
+                }
+            }
+            result.success(true);
         } else {
             result.notImplemented();
         }
@@ -140,8 +154,10 @@ public class NotificationListenerServicePlugin implements FlutterPlugin, Activit
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction(NotificationConstants.INTENT);
         notificationReceiver = new NotificationReceiver(events);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            context.registerReceiver(notificationReceiver, intentFilter, Context.RECEIVER_EXPORTED);
+        // API 33+ requires an exported flag. Same-app broadcasts use NOT_EXPORTED.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(
+                    notificationReceiver, intentFilter, Context.RECEIVER_NOT_EXPORTED);
         } else {
             context.registerReceiver(notificationReceiver, intentFilter);
         }

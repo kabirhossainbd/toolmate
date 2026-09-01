@@ -78,7 +78,7 @@ class _DuplicateFilesScreenState extends State<DuplicateFilesScreen> {
         leadingWidth: 56,
         leading: IconButton(
           tooltip: 'Back',
-          onPressed: () => Get.back(),
+          onPressed: () => Navigator.of(context).maybePop(),
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
         ),
         title: Text('Duplicate Files',
@@ -146,6 +146,7 @@ class _DuplicateFilesScreenState extends State<DuplicateFilesScreen> {
             itemBuilder: (context, index) {
               final group = controller.duplicateFilesList[index];
               return _FileGroupCard(
+                key: ValueKey(group.map((f) => f.path).join('|')),
                 group: group,
                 formatSize: controller.formatSize,
                 onPreview: (file) => _openPreview(context, file),
@@ -398,6 +399,7 @@ class _FileGroupCard extends StatelessWidget {
   final void Function(File file) onDelete;
 
   const _FileGroupCard({
+    super.key,
     required this.group,
     required this.formatSize,
     required this.onPreview,

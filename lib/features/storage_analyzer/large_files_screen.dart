@@ -73,7 +73,7 @@ class _LargeFilesScreenState extends State<LargeFilesScreen> {
         leadingWidth: 56,
         leading: IconButton(
           tooltip: 'Back',
-          onPressed: () => Get.back(),
+          onPressed: () => Navigator.of(context).maybePop(),
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
         ),
         title: Text('Large Files', style: openSansBold.copyWith(fontSize: 17)),

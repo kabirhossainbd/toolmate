@@ -74,6 +74,26 @@ class StorageAnalyzerController extends GetxController {
   /// Real shared-storage path for each gallery asset id (never app-cache paths).
   final Map<String, String> _imagePathById = {};
 
+  bool _pathsEqual(String a, String b) {
+    if (a == b) return true;
+    return _canonicalPath(a) == _canonicalPath(b);
+  }
+
+  bool _isMediaPath(String path) {
+    final i = path.lastIndexOf('.');
+    if (i < 0) return false;
+    const media = {
+      'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif',
+      'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', '3gp', 'm4v',
+    };
+    return media.contains(path.substring(i + 1).toLowerCase());
+  }
+
+  void _notifyDuplicateLists() {
+    duplicateFilesList.refresh();
+    duplicateImages.refresh();
+  }
+
   /// Normalize Android path aliases + resolve symlinks so the same file
   /// is never treated as two different files.
   String _canonicalPath(String path) {
@@ -463,10 +483,28 @@ class StorageAnalyzerController extends GetxController {
     _resetScanUi(status: 'Accessing gallery…');
 
     try {
-      final albums = await PhotoManager.getAssetPathList(
-        type: RequestType.image,
-        onlyAll: true,
-      );
+      PMFilter? filter;
+      if (Platform.isAndroid) {
+        try {
+          // Android 11+ deleteWithIds moves items to trash; still listed unless excluded.
+          filter = AdvancedCustomFilter().addWhereCondition(
+            WhereConditionItem.text('${CustomColumns.android.isTrashed} = 0'),
+          );
+        } catch (_) {}
+      }
+      List<AssetPathEntity> albums;
+      try {
+        albums = await PhotoManager.getAssetPathList(
+          type: RequestType.image,
+          onlyAll: true,
+          filterOption: filter,
+        );
+      } catch (_) {
+        albums = await PhotoManager.getAssetPathList(
+          type: RequestType.image,
+          onlyAll: true,
+        );
+      }
       if (gen != _dupImagesScanGen) return;
       if (albums.isEmpty) {
         scanPercent.value = 100;
@@ -687,89 +725,180 @@ class StorageAnalyzerController extends GetxController {
   }
 
   Future<void> deleteAsset(AssetEntity asset) async {
-    try {
-      final deletedPath =
-          _imagePathById[asset.id] ?? await _resolveRealGalleryPath(asset);
+    final deletedPath =
+        _imagePathById[asset.id] ?? await _resolveRealGalleryPath(asset);
 
-      // Gallery delete must go through MediaStore only — never File.delete().
-      // File.delete on a shared path is what made "both copies" vanish.
+    try {
+      // Gallery delete must go through MediaStore (system confirm on Android 11+).
       final List<String> result =
           await PhotoManager.editor.deleteWithIds([asset.id]);
       if (result.isEmpty) {
         throw Exception('Failed to delete asset');
       }
-
       _imagePathById.remove(asset.id);
-      await _pruneImageGroupsAfterDelete(
+      _pruneImageGroupsAfterDelete(
         deletedAssetId: asset.id,
         deletedPath: deletedPath,
       );
+      if (Platform.isAndroid) {
+        try {
+          await PhotoManager.editor.android.removeAllNoExistsAsset();
+        } catch (_) {}
+      }
     } catch (e) {
       Get.log('Error deleting asset: $e');
       rethrow;
     }
   }
 
-  Future<void> _pruneImageGroupsAfterDelete({
+  void _pruneImageGroupsAfterDelete({
     required String deletedAssetId,
     String? deletedPath,
-  }) async {
+  }) {
+    final deletedCanon =
+        deletedPath == null ? null : _canonicalPath(deletedPath);
     final next = <List<AssetEntity>>[];
     for (final group in duplicateImages) {
       final kept = <AssetEntity>[];
       final seenPaths = <String>{};
-      final seenSoft = <String>{};
+      final seenIds = <String>{};
 
       for (final a in group) {
-        if (a.id == deletedAssetId) continue;
-
-        // Re-check the asset still exists in MediaStore.
-        final still = await AssetEntity.fromId(a.id);
-        if (still == null) {
+        if (a.id == deletedAssetId) {
           _imagePathById.remove(a.id);
           continue;
         }
+        if (!seenIds.add(a.id)) continue;
 
-        final path =
-            _imagePathById[a.id] ?? await _resolveRealGalleryPath(still);
-        if (path == null) {
-          _imagePathById.remove(a.id);
-          continue;
+        final path = _imagePathById[a.id];
+        if (path != null) {
+          if (deletedCanon != null && _canonicalPath(path) == deletedCanon) {
+            _imagePathById.remove(a.id);
+            continue;
+          }
+          if (!File(path).existsSync()) {
+            _imagePathById.remove(a.id);
+            continue;
+          }
+          if (!seenPaths.add(_canonicalPath(path))) continue;
         }
 
-        // Same physical file as the one we deleted → drop from UI only.
-        if (deletedPath != null &&
-            _canonicalPath(path) == _canonicalPath(deletedPath)) {
-          _imagePathById.remove(a.id);
-          continue;
-        }
-
-        if (!File(path).existsSync()) {
-          _imagePathById.remove(a.id);
-          continue;
-        }
-
-        final soft = _assetSoftKey(still);
-        if (!seenSoft.add(soft)) continue;
-        if (!seenPaths.add(_canonicalPath(path))) continue;
-
-        _imagePathById[still.id] = path;
-        kept.add(still);
+        kept.add(a);
       }
 
       if (kept.length > 1) next.add(kept);
     }
     duplicateImages.assignAll(next);
+    _notifyDuplicateLists();
+  }
+
+  Future<AssetEntity?> _findGalleryAssetForPath(String filePath) async {
+    for (final e in _imagePathById.entries) {
+      if (_pathsEqual(e.value, filePath)) {
+        return AssetEntity.fromId(e.key);
+      }
+    }
+    if (!Platform.isAndroid) return null;
+
+    final name = filePath.split('/').last;
+    var rel = '';
+    final canon = _canonicalPath(filePath);
+    for (final root in const ['/storage/emulated/0/', '/sdcard/']) {
+      if (canon.startsWith(root) || filePath.startsWith(root)) {
+        final rest = (canon.startsWith(root) ? canon : filePath).substring(root.length);
+        final i = rest.lastIndexOf('/');
+        rel = i <= 0 ? '' : '${rest.substring(0, i)}/';
+        break;
+      }
+    }
+
+    String esc(String s) => s.replaceAll("'", "''");
+    try {
+      final filter = AdvancedCustomFilter().addWhereCondition(
+        WhereConditionItem.text(
+          "${CustomColumns.android.displayName} = '${esc(name)}'",
+        ),
+      );
+      if (rel.isNotEmpty) {
+        final relNoSlash = rel.replaceAll(RegExp(r'/+$'), '');
+        filter.addWhereCondition(
+          WhereConditionItem.text(
+            "(${CustomColumns.android.relativePath} = '${esc(rel)}' "
+            "OR ${CustomColumns.android.relativePath} = '${esc('$relNoSlash/')}' "
+            "OR ${CustomColumns.android.relativePath} = '${esc(relNoSlash)}')",
+          ),
+        );
+      }
+      filter.addWhereCondition(
+        WhereConditionItem.text('${CustomColumns.android.isTrashed} = 0'),
+      );
+      final albums = await PhotoManager.getAssetPathList(
+        type: RequestType.common,
+        onlyAll: true,
+        filterOption: filter,
+      );
+      if (albums.isEmpty) return null;
+      final list = await albums.first.getAssetListRange(start: 0, end: 30);
+      for (final a in list) {
+        final p = _imagePathById[a.id] ?? await _resolveRealGalleryPath(a);
+        if (p != null && _pathsEqual(p, filePath)) return a;
+      }
+      if (list.length == 1) return list.first;
+    } catch (e) {
+      Get.log('MediaStore lookup failed: $e');
+    }
+    return null;
+  }
+
+  Future<bool> _deleteViaMediaStore(String filePath) async {
+    if (!_isMediaPath(filePath)) return false;
+    final asset = await _findGalleryAssetForPath(filePath);
+    if (asset == null) return false;
+    final result = await PhotoManager.editor.deleteWithIds([asset.id]);
+    return result.isNotEmpty;
   }
 
   Future<void> deleteFile(File file) async {
-    try {
-      final path = _canonicalPath(file.path);
-      final f = File(path);
-      if (f.existsSync()) {
-        await f.delete();
+    final original = file.path;
+    final path = _canonicalPath(original);
+
+    // Always drop from the duplicate list first so the extra copy disappears.
+    largeFiles.removeWhere(
+      (f) => _pathsEqual(f.path, original) || _pathsEqual(f.path, path),
+    );
+    largeFileSizes.remove(original);
+    largeFileSizes.remove(path);
+    _removeFileFromDuplicateGroups(original);
+    if (path != original) _removeFileFromDuplicateGroups(path);
+
+    Future<void> tryDelete(String candidate) async {
+      try {
+        final f = File(candidate);
+        if (await f.exists()) {
+          await f.delete();
+        }
+      } on PathNotFoundException {
+        // Stale MediaStore path — already gone from disk.
+      } on FileSystemException catch (e) {
+        if (e.osError?.errorCode == 2) return;
+        rethrow;
       }
-      _removeFileFromDuplicateGroups(path);
+    }
+
+    try {
+      var removed = await _deleteViaMediaStore(original);
+      if (!removed && path != original) {
+        removed = await _deleteViaMediaStore(path);
+      }
+      if (!removed) {
+        await tryDelete(original);
+        if (path != original) await tryDelete(path);
+      }
+      if (Platform.isAndroid) {
+        try {
+          await PhotoManager.editor.android.removeAllNoExistsAsset();
+        } catch (_) {}
+      }
     } catch (e) {
       Get.log('Error deleting file: $e');
       rethrow;
@@ -777,21 +906,26 @@ class StorageAnalyzerController extends GetxController {
   }
 
   void _removeFileFromDuplicateGroups(String path) {
-    final canon = _canonicalPath(path);
+    final targets = <String>{path, _canonicalPath(path)};
     final next = <List<File>>[];
     for (final group in duplicateFilesList) {
       final kept = <File>[];
       final seen = <String>{};
       for (final f in group) {
-        final p = _canonicalPath(f.path);
-        if (p == canon) continue;
-        if (!File(p).existsSync()) continue;
-        if (!seen.add(p)) continue;
-        kept.add(File(p));
+        final p = f.path;
+        final c = _canonicalPath(p);
+        if (targets.contains(p) || targets.contains(c) || _pathsEqual(p, path)) {
+          continue;
+        }
+        final exists = File(p).existsSync() || File(c).existsSync();
+        if (!exists) continue;
+        if (!seen.add(c)) continue;
+        kept.add(f);
       }
       if (kept.length > 1) next.add(kept);
     }
     duplicateFilesList.assignAll(next);
+    _notifyDuplicateLists();
   }
 
   Future<void> cleanCache() async {
@@ -908,12 +1042,23 @@ class StorageAnalyzerController extends GetxController {
 
   Future<void> deleteFileSystemEntity(String path) async {
     try {
-      final entity =
-          FileSystemEntity.isFileSync(path) ? File(path) : Directory(path);
-      if (await entity.exists()) {
-        await entity.delete(recursive: true);
-        await listFolderContent(currentPath.value);
+      final file = File(path);
+      final dir = Directory(path);
+      if (await file.exists()) {
+        await file.delete();
+      } else if (await dir.exists()) {
+        await dir.delete(recursive: true);
       }
+      await listFolderContent(currentPath.value);
+    } on PathNotFoundException {
+      await listFolderContent(currentPath.value);
+    } on FileSystemException catch (e) {
+      if (e.osError?.errorCode == 2) {
+        await listFolderContent(currentPath.value);
+        return;
+      }
+      Get.log('Error deleting entity: $e');
+      rethrow;
     } catch (e) {
       Get.log('Error deleting entity: $e');
       rethrow;

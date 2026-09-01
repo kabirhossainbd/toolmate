@@ -1,79 +1,27 @@
-import 'dart:async';
+import 'package:flutter/widgets.dart';
 
-import 'package:flutter/material.dart';
-import 'package:get/get.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'app.dart' deferred as app;
 
-import 'core/background_service.dart';
-import 'core/constants/app_constants.dart';
-import 'core/settings/app_settings_controller.dart';
-import 'core/settings/app_translations.dart';
-import 'core/theme.dart';
-import 'features/notification_history/notification_model.dart';
-import 'features/user_profile/user_profile_model.dart';
-import 'features/video_downloader/video_model.dart';
-import 'routes/app_pages.dart';
-
-Future<void> main() async {
+/// Smallest possible first frame so Android can drop the native splash.
+/// Heavy imports (GetX, Hive, notification history) load only after that.
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  await Hive.initFlutter();
-  Hive.registerAdapter(VideoModelAdapter());
-  Hive.registerAdapter(NotificationModelAdapter());
-  Hive.registerAdapter(UserProfileModelAdapter());
-
-  await Future.wait([
-    Hive.openBox<VideoModel>(AppConstants.boxVideoHistory),
-    Hive.openBox<NotificationModel>(AppConstants.boxNotifications),
-    Hive.openBox<UserProfileModel>(AppConstants.boxUserProfile),
-    Hive.openBox(AppConstants.boxAppSettings),
-    Hive.openBox(AppConstants.boxNotes),
-    Hive.openBox(AppConstants.boxClipboard),
-  ]);
-
-  // Never block first frame on BG service — configure/start can hang when the
-  // foreground service survived swipe-from-recents (stopWithTask=false).
-  unawaited(
-    BackgroundService.initializeService().timeout(
-      const Duration(seconds: 8),
-      onTimeout: () {
-        // ignore: avoid_print
-        print('BackgroundService.initializeService timed out');
-      },
-    ).catchError((Object e) {
-      // ignore: avoid_print
-      print('BackgroundService.initializeService failed: $e');
-    }),
+  runApp(
+    const ColoredBox(
+      color: Color(0xFF121212),
+      child: SizedBox.expand(),
+    ),
   );
-
-  // Preferences before first frame
-  Get.put(AppSettingsController(), permanent: true);
-
-  runApp(const MyApp());
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _loadApp();
+  });
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final settings = Get.find<AppSettingsController>();
-
-    return Obx(
-      () => GetMaterialApp(
-        title: AppConstants.appName,
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: settings.themeMode.value,
-        translations: AppTranslations(),
-        locale: settings.locale,
-        fallbackLocale: const Locale('en', 'US'),
-        defaultTransition: Transition.native,
-        transitionDuration: const Duration(milliseconds: 400),
-        initialRoute: AppPages.initial,
-        getPages: AppPages.routes,
-      ),
-    );
+Future<void> _loadApp() async {
+  try {
+    await app.loadLibrary();
+    app.start();
+  } catch (e, st) {
+    debugPrint('App load failed: $e\n$st');
   }
 }
