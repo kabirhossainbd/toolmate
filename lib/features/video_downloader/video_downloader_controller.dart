@@ -109,14 +109,6 @@ class VideoDownloaderController extends GetxController
       return;
     }
 
-    if (SocialMediaService.isYouTubeUrl(url)) {
-      Get.snackbar(
-        'Not supported',
-        'This platform is not supported. Paste a public Instagram, TikTok, Facebook, or X link instead.',
-      );
-      return;
-    }
-
     isFetching.value = true;
     clearPreview();
 
@@ -182,6 +174,7 @@ class VideoDownloaderController extends GetxController
             'User-Agent':
                 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
             'Accept': '*/*',
+            if (media.platform == 'YouTube') 'Referer': 'https://www.youtube.com/',
           },
           followRedirects: true,
           validateStatus: (s) => s != null && s < 400,

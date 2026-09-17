@@ -172,7 +172,7 @@ class _InsertLinkTab extends StatelessWidget {
                             color: isDark ? Colors.white : Colors.black87),
                         decoration: InputDecoration(
                           hintText:
-                              'Paste Instagram, TikTok, Facebook, X… link',
+                              'Paste YouTube, Instagram, TikTok… link',
                           hintStyle:
                               TextStyle(color: hintColor, fontSize: 13),
                           filled: true,
@@ -505,7 +505,7 @@ class _InsertLinkTab extends StatelessWidget {
                 _HowToStep(
                   number: 1,
                   text:
-                      'Open Instagram, TikTok, Facebook, X… and copy the post link',
+                      'Open YouTube, Instagram, TikTok… and copy the video link',
                 ),
                 const SizedBox(height: 12),
                 _HowToStep(

@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 enum MediaKind { video, image, gif }
 
@@ -46,6 +47,7 @@ class SocialMediaService {
   ];
 
   static const supportedPlatforms = [
+    'YouTube',
     'Instagram',
     'TikTok',
     'Facebook',
@@ -57,7 +59,6 @@ class SocialMediaService {
     'Vimeo',
   ];
 
-  /// YouTube ToS + Play Device and Network Abuse: never download YouTube.
   static bool isYouTubeUrl(String url) {
     final lower = url.trim().toLowerCase();
     if (lower.contains('youtube.com') ||
@@ -114,18 +115,16 @@ class SocialMediaService {
       );
     }
 
-    if (isYouTubeUrl(trimmed)) {
-      return const MediaResolveResult(
-        items: [],
-        error:
-            'This platform is not supported. Paste a public Instagram, TikTok, Facebook, or X link instead.',
-      );
-    }
-
     final platform = detectPlatform(trimmed);
 
     if (isDirectMediaUrl(trimmed)) {
       return MediaResolveResult(items: [_fromDirectUrl(trimmed, platform)]);
+    }
+
+    // YouTube: local extractor first, then Cobalt if muxed streams are missing.
+    if (platform == 'YouTube') {
+      final yt = await _resolveYouTube(trimmed);
+      if (yt.isSuccess) return yt;
     }
 
     // TikTok: try public TikWM-style extractor first (no Cobalt auth needed).
@@ -142,7 +141,7 @@ class SocialMediaService {
     }
 
     // Best-effort fallback for other platforms.
-    if (platform != 'Facebook') {
+    if (platform != 'YouTube' && platform != 'Facebook') {
       final v7 = await _resolveV7Fallback(trimmed, platform);
       if (v7 != null && v7.isSuccess) return v7;
     }
@@ -155,6 +154,13 @@ class SocialMediaService {
 
     final cobalt = await _resolveCobalt(trimmed, platform);
     if (cobalt.isSuccess) return cobalt;
+
+    if (platform == 'YouTube') {
+      return const MediaResolveResult(
+        items: [],
+        error: 'Failed to fetch YouTube video. Try another link.',
+      );
+    }
 
     return MediaResolveResult(
       items: [],
@@ -197,6 +203,47 @@ class SocialMediaService {
     if (t == 'gif') return MediaKind.gif;
     if (t == 'video') return MediaKind.video;
     return _kindFromPath(filename.toLowerCase());
+  }
+
+  Future<MediaResolveResult> _resolveYouTube(String url) async {
+    final yt = YoutubeExplode();
+    try {
+      final video = await yt.videos.get(url);
+      final manifest = await yt.videos.streamsClient.getManifest(
+        url,
+        ytClients: [
+          YoutubeApiClient.androidVr,
+          YoutubeApiClient.ios,
+          YoutubeApiClient.androidSdkless,
+        ],
+      );
+      final muxed = manifest.muxed;
+      if (muxed.isEmpty) {
+        return const MediaResolveResult(items: []);
+      }
+      final stream = muxed.withHighestBitrate();
+      final thumb = video.thumbnails.highResUrl.isNotEmpty
+          ? video.thumbnails.highResUrl
+          : video.thumbnails.mediumResUrl;
+      final safeTitle = video.title.replaceAll(RegExp(r'[^\w\s-]'), '').trim();
+      return MediaResolveResult(
+        items: [
+          ResolvedMedia(
+            sourceUrl: url,
+            downloadUrl: stream.url.toString(),
+            title: video.title,
+            thumbnailUrl: thumb,
+            filename: '${safeTitle.isEmpty ? 'youtube' : safeTitle}.mp4',
+            kind: MediaKind.video,
+            platform: 'YouTube',
+          ),
+        ],
+      );
+    } catch (_) {
+      return const MediaResolveResult(items: []);
+    } finally {
+      yt.close();
+    }
   }
 
   Future<MediaResolveResult> _resolveTwitter(String url) async {
